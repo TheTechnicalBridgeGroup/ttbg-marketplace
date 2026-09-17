@@ -1,0 +1,19 @@
+services:
+  - type: web
+    name: ttbg-marketplace
+    region: ohio
+    runtime: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: flask --app run init-db && gunicorn run:app --bind 0.0.0.0:$PORT --workers 2 --timeout 60
+    healthCheckPath: /health
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.8
+      - key: SECRET_KEY
+        generateValue: true
+      - key: DATABASE_URL
+        sync: false
+      - key: COOKIE_SECURE
+        value: "true"
+      - key: DEMO_BOOKING_ENABLED
+        value: "true"
