@@ -5,6 +5,7 @@ from flask_login import LoginManager
 from flask_wtf import CSRFProtect
 from dotenv import load_dotenv
 from .models import db, User
+import certifi
 
 def create_app(config=None):
     load_dotenv()
@@ -13,8 +14,19 @@ def create_app(config=None):
     if url.startswith('postgres://'): url = url.replace('postgres://','postgresql+psycopg://',1)
     elif url.startswith('postgresql://'): url = url.replace('postgresql://','postgresql+psycopg://',1)
     elif url.startswith('mysql://'): url = url.replace('mysql://','mysql+pymysql://',1)
-    app.config.update(SECRET_KEY=os.getenv('SECRET_KEY'), SQLALCHEMY_DATABASE_URI=url,
-        SQLALCHEMY_TRACK_MODIFICATIONS=False, SQLALCHEMY_ENGINE_OPTIONS={'pool_pre_ping':True},
+            engine_options = {'pool_pre_ping': True}
+        
+        if url.startswith('postgresql+psycopg://'):
+            engine_options['connect_args'] = {
+                'sslmode': 'verify-full',
+                'sslrootcert': certifi.where()
+            }
+        
+        app.config.update(
+            SECRET_KEY=os.getenv('SECRET_KEY'),
+            SQLALCHEMY_DATABASE_URI=url,
+            SQLALCHEMY_TRACK_MODIFICATIONS=False,
+            SQLALCHEMY_ENGINE_OPTIONS=engine_options,
         SESSION_COOKIE_HTTPONLY=True, SESSION_COOKIE_SAMESITE='Lax',
         SESSION_COOKIE_SECURE=os.getenv('COOKIE_SECURE','false').lower()=='true',
         PERMANENT_SESSION_LIFETIME=timedelta(hours=8), MAX_CONTENT_LENGTH=64*1024,
