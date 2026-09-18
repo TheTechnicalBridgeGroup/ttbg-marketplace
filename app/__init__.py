@@ -80,7 +80,7 @@ def create_app(config=None):
     def headers(response):
         response.headers['X-Content-Type-Options']='nosniff'
         response.headers['X-Frame-Options']='DENY'
-        response.headers['Referrer-Policy']='no-referrer'
+        response.headers['Referrer-Policy']='same-origin'
         response.headers['Content-Security-Policy']="default-src 'self'; style-src 'self'; img-src 'self' data:; script-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'self'"
         if response.mimetype=='text/html': response.headers['Cache-Control']='no-store'
         return response
