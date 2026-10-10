@@ -1,0 +1,170 @@
+{% extends "base.html" %}
+{% block title %}Become a Mentor | The Technical Bridge Group{% endblock %}
+
+{% block content %}
+<section class="portal-hero">
+    <div class="container portal-hero-grid">
+        <div class="portal-hero-copy">
+            <p class="eyebrow">Mentorship Registration Portal</p>
+            <h1>
+                Help build the
+                <span>next generation.</span>
+            </h1>
+            <p class="hero-copy">
+                Share your experience, support emerging professionals, and help
+                The Technical Bridge Group strengthen the connection between
+                learning and real-world readiness.
+            </p>
+
+            <div class="hero-pill-row" aria-label="Mentor portal highlights">
+                <span>Industry mentorship</span>
+                <span>Private review</span>
+                <span>Real-world readiness</span>
+            </div>
+        </div>
+
+        <aside class="hero-note">
+            <span class="hero-note-label">PRIVATE REVIEW PROCESS</span>
+            <strong>Every application is reviewed manually.</strong>
+            <p>
+                The Technical Bridge Group reviews submitted information before
+                vetting and onboarding begin.
+            </p>
+        </aside>
+    </div>
+</section>
+
+<section class="section section-white">
+    <div class="container narrow">
+        <div class="section-heading">
+            <p class="eyebrow">Mentor Application</p>
+            <h2>Tell us about your experience.</h2>
+            <p>Complete the form below so the TTBG team can review your background and areas of interest.</p>
+        </div>
+
+        <form method="post" class="card form-card" novalidate>
+            {{ form.hidden_tag() }}
+
+            <fieldset class="form-fieldset">
+                <legend>Full Name</legend>
+                <div class="form-grid two-column">
+                    <div class="field">
+                        <label for="{{ form.first_name.id }}">
+                            First Name <span class="required">(required)</span>
+                        </label>
+                        {{ form.first_name(autocomplete="given-name") }}
+                        {% for error in form.first_name.errors %}
+                            <span class="error">{{ error }}</span>
+                        {% endfor %}
+                    </div>
+
+                    <div class="field">
+                        <label for="{{ form.last_name.id }}">
+                            Last Name <span class="required">(required)</span>
+                        </label>
+                        {{ form.last_name(autocomplete="family-name") }}
+                        {% for error in form.last_name.errors %}
+                            <span class="error">{{ error }}</span>
+                        {% endfor %}
+                    </div>
+                </div>
+            </fieldset>
+
+            <div class="form-grid two-column">
+                <div class="field">
+                    <label for="{{ form.email.id }}">
+                        Email <span class="required">(required)</span>
+                    </label>
+                    {{ form.email(autocomplete="email", placeholder="name@email.com") }}
+                    {% for error in form.email.errors %}
+                        <span class="error">{{ error }}</span>
+                    {% endfor %}
+                </div>
+
+                <div class="field">
+                    <label for="{{ form.phone.id }}">
+                        Phone <span class="required">(required)</span>
+                    </label>
+                    {{ form.phone(autocomplete="tel") }}
+                    {% for error in form.phone.errors %}
+                        <span class="error">{{ error }}</span>
+                    {% endfor %}
+                </div>
+            </div>
+
+            <div class="form-grid two-column">
+                <div class="field">
+                    {{ form.years_experience.label }}
+                    {{ form.years_experience(placeholder="e.g. 10+ years") }}
+                    {% for error in form.years_experience.errors %}
+                        <span class="error">{{ error }}</span>
+                    {% endfor %}
+                </div>
+
+                <div class="field">
+                    {{ form.preferred_contact_method.label }}
+                    {{ form.preferred_contact_method() }}
+                    {% for error in form.preferred_contact_method.errors %}
+                        <span class="error">{{ error }}</span>
+                    {% endfor %}
+                </div>
+            </div>
+
+            <div class="field">
+                <label for="{{ form.area_of_expertise.id }}">
+                    Industry / Area of Expertise
+                    <span class="required">(required)</span>
+                </label>
+                {{ form.area_of_expertise(placeholder="IT, Project Management, Health") }}
+                {% for error in form.area_of_expertise.errors %}
+                    <span class="error">{{ error }}</span>
+                {% endfor %}
+            </div>
+
+            <div class="field">
+                {{ form.about_yourself.label }}
+                {{ form.about_yourself(rows="5", placeholder="About your background, interests, passions") }}
+                {% for error in form.about_yourself.errors %}
+                    <span class="error">{{ error }}</span>
+                {% endfor %}
+            </div>
+
+            <div class="field">
+                <label>{{ form.support_areas.label.text }}</label>
+                <div class="checkbox-grid">
+                    {% for option in form.support_areas %}
+                        <label class="checkbox-option" for="{{ option.id }}">
+                            {{ option() }}
+                            <span>{{ option.label.text }}</span>
+                        </label>
+                    {% endfor %}
+                </div>
+                {% for error in form.support_areas.errors %}
+                    <span class="error">{{ error }}</span>
+                {% endfor %}
+            </div>
+
+            <div class="honeypot" aria-hidden="true">
+                {{ form.website.label }}
+                {{ form.website(tabindex="-1", autocomplete="off") }}
+            </div>
+
+            <div class="acknowledgement-block">
+                <p class="acknowledgement-title">
+                    Acknowledgement
+                    <span class="required">(required)</span>
+                </p>
+                <label class="checkbox-option acknowledgement-option">
+                    {{ form.acknowledgement() }}
+                    <span>{{ form.acknowledgement.label.text }}</span>
+                </label>
+                {% for error in form.acknowledgement.errors %}
+                    <span class="error">{{ error }}</span>
+                {% endfor %}
+            </div>
+
+            {{ form.submit(class_="primary-button full-width") }}
+        </form>
+    </div>
+</section>
+{% endblock %}

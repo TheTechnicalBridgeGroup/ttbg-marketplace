@@ -1,6 +1,110 @@
-<!doctype html><html lang="en" data-theme="light"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="description" content="Find your next step with The Technical Bridge Group. Explore mentors and manage your mentorship journey."><title>{% block title %}Mentorship{% endblock %} | TTBG</title><link rel="icon" href="{{ url_for('static',filename='favicon.ico') }}"><script src="{{ url_for('static',filename='js/theme.js',v='0.2.1') }}"></script><link rel="stylesheet" href="{{ url_for('static',filename='css/app.css',v='0.2.1') }}"></head><body>
-<a class="skip" href="#content">Skip to content</a>
-<div class="beta-bar"><span>THE TECHNICAL BRIDGE GROUP</span><div class="beta-settings"><span>Beta 0.2.1 · Demo reservations only</span><select id="theme-choice" class="theme-choice" aria-label="Color mode" hidden><option value="light">Light mode</option><option value="dark">Dark mode</option></select></div></div>
-<header><div class="header-inner"><a class="brand" href="{{ url_for('main.browse') }}"><img src="{{ url_for('static',filename='img/logo.png') }}" alt="The Technical Bridge Group"></a><nav aria-label="Main navigation"><a class="{{ 'selected' if request.endpoint in ['main.browse','main.mentor','main.book'] }}" href="{{ url_for('main.browse') }}">Find a mentor</a>{% if current_user.is_authenticated %}<a href="{{ url_for('main.dashboard') }}">{{ 'Workspace' if current_user.role in ['admin','onboarding'] else 'My dashboard' }}</a>{% if current_user.role=='student' %}<a href="https://ttbg-mentor-portal.onrender.com/apply">Become a mentor</a>{% endif %}<form method="post" action="{{ url_for('main.logout') }}">{{ action_form.hidden_tag() }}<button class="text-button">Sign out</button></form><span class="avatar tiny" title="{{ current_user.name }}">{{ current_user.name[:1] }}</span>{% else %}<a href="https://ttbg-mentor-portal.onrender.com/apply">Become a mentor</a><a href="{{ url_for('main.login') }}">Sign in</a><a class="button small" href="{{ url_for('main.register') }}">Create account</a>{% endif %}</nav></div></header>
-<main id="content">{% with messages=get_flashed_messages(with_categories=true) %}{% if messages %}<div class="container flashes" role="status">{% for category,message in messages %}<p class="notice {{ category }}">{{ message }}</p>{% endfor %}</div>{% endif %}{% endwith %}{% block content %}{% endblock %}</main>
-<footer><div class="container footer"><div><strong>BE THE BRIDGE.</strong><p>Real people. Real industry. Stronger tomorrows.</p></div><div><a href="https://www.thetechnicalbridgegroup.com/">Visit TTBG</a><a href="https://ttbg-help-desk.onrender.com/">Team help desk</a><p>© 2026 The Technical Bridge Group™ · Beta 0.2.1</p></div></div></footer></body></html>
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#142946">
+    <title>{% block title %}TTBG Mentor Portal{% endblock %}</title>
+
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Oswald:wght@400;500;600&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/app.css') }}">
+</head>
+<body>
+    <header class="site-header">
+        <div class="container header-inner">
+            <a class="brand" href="{{ url_for('public.apply') }}" aria-label="The Technical Bridge Group mentor portal">
+                <img
+                    class="brand-logo"
+                    src="{{ url_for('static', filename='img/ttbg-logo.png') }}"
+                    alt="The Technical Bridge Group"
+                >
+            </a>
+
+            <nav class="header-nav" aria-label="Portal navigation">
+                <a class="mobile-hide" href="https://www.thetechnicalbridgegroup.com/">Main Website</a>
+
+                {% if current_user.is_authenticated %}
+                    <a href="{{ url_for('admin.dashboard') }}">Applications</a>
+                    <a class="mobile-hide" href="{{ url_for('public.apply') }}" target="_blank">Public Form</a>
+                    <form method="post" action="{{ url_for('admin.logout') }}">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <button class="link-button" type="submit">Sign out</button>
+                    </form>
+                {% else %}
+                    <a class="header-cta" href="{{ url_for('admin.login') }}">Team Login</a>
+                {% endif %}
+            </nav>
+        </div>
+    </header>
+
+    <main>
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+                <div class="container flash-stack">
+                    {% for category, message in messages %}
+                        <div class="flash flash-{{ category }}">{{ message }}</div>
+                    {% endfor %}
+                </div>
+            {% endif %}
+        {% endwith %}
+
+        {% block content %}{% endblock %}
+    </main>
+
+    <footer class="portal-footer">
+        <div class="container portal-footer-grid">
+            <div class="portal-footer-brand">
+                <a href="https://www.thetechnicalbridgegroup.com/" aria-label="The Technical Bridge Group main website">
+                    <img
+                        class="footer-logo"
+                        src="{{ url_for('static', filename='img/ttbg-logo.png') }}"
+                        alt="The Technical Bridge Group"
+                    >
+                </a>
+                <p>
+                    Bridging knowledge, building careers, and connecting emerging
+                    professionals with real-world mentorship.
+                </p>
+                <small>© 2026 The Technical Bridge Group™. All Rights Reserved.</small>
+            </div>
+
+            <div class="portal-footer-column">
+                <h3>Quick Links</h3>
+                <nav aria-label="Footer navigation">
+                    <a href="https://www.thetechnicalbridgegroup.com/">Home</a>
+                    <a href="https://www.thetechnicalbridgegroup.com/trades-services">Trades &amp; Services</a>
+                    <a href="https://www.thetechnicalbridgegroup.com/tutoring-options">Tutoring Options</a>
+                    <a href="https://www.thetechnicalbridgegroup.com/about">About</a>
+                </nav>
+            </div>
+
+            <div class="portal-footer-column">
+                <h3>Contact</h3>
+                <div class="portal-footer-contact">
+                    <a href="tel:+15026862834">
+                        <span>PHONE</span>
+                        (602) 686-2834
+                    </a>
+                    <a href="mailto:Destinee.Walker@TheTechnicalBridgeGroup.com">
+                        <span>EMAIL</span>
+                        Destinee.Walker@TheTechnicalBridgeGroup.com
+                    </a>
+                </div>
+            </div>
+
+            <div class="portal-footer-cta">
+                <span>MENTORSHIP PORTAL</span>
+                <h3>Help build the next generation.</h3>
+                <a href="{{ url_for('public.apply') }}">Mentor Application</a>
+            </div>
+        </div>
+
+        <div class="container portal-footer-bottom">
+            <span>Real People. Real Industry. Stronger Tomorrows.</span>
+            <span>The Technical Bridge Group™</span>
+        </div>
+    </footer>
+</body>
+</html>

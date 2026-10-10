@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block title %}Team Login | TTBG{% endblock %}
+
+{% block content %}
+<section class="section">
+    <div class="container login-wrap">
+        <form method="post" class="card login-card">
+            {{ form.hidden_tag() }}
+            <p class="eyebrow">Private team access</p>
+            <h1>Logistics dashboard</h1>
+            <p>Sign in to review and manage mentor applications.</p>
+
+            <div class="field">
+                {{ form.email.label }}
+                {{ form.email(autocomplete="email") }}
+                {% for error in form.email.errors %}<span class="error">{{ error }}</span>{% endfor %}
+            </div>
+
+            <div class="field">
+                {{ form.password.label }}
+                {{ form.password(autocomplete="current-password") }}
+                {% for error in form.password.errors %}<span class="error">{{ error }}</span>{% endfor %}
+            </div>
+
+            {{ form.submit(class_="primary-button full-width") }}
+        </form>
+    </div>
+</section>
+{% endblock %}

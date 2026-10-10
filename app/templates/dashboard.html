@@ -1,1 +1,102 @@
-{% extends 'base.html' %}{% from 'macros.html' import status, bookings_table %}{% block title %}My dashboard{% endblock %}{% block content %}<div class="container section"><div class="section-heading"><div><p class="eyebrow">{{ 'MENTOR' if m else 'STUDENT' }} WORKSPACE</p><h1>Welcome, {{ current_user.name.split()[0] }}.</h1><p class="lede">Your next steps, all in one place.</p></div><a class="button" href="{{ url_for('main.onboarding') if m else url_for('main.browse') }}">{{ 'Edit my profile' if m else 'Find a mentor' }} ↗</a></div>{% if m %}<div class="panel onboarding-status"><div><p class="eyebrow">YOUR MENTOR PROFILE</p><h2>{{ m.title }}</h2>{{ status(m.status) }}</div><div><p>{{ m.review_note or 'TTBG will share review updates here. Once approved, your profile appears in the mentor directory.' }}</p>{% if m.status=='approved' %}<a href="{{ url_for('main.mentor',mid=m.id) }}">View public profile →</a>{% endif %}</div></div>{% endif %}{% if m %}<section class="panel top-gap"><div class="section-heading"><div><p class="eyebrow">YOUR SERVICES & PRICING</p><h2>Your experience. Your rates.</h2></div></div><p class="muted">You control your session prices. Changes apply to new reservations; TTBG’s commission is shown separately.</p>{% for s in m.services %}<div class="service-row"><div><h3>{{ s.name }}</h3><span class="muted">{{ s.duration }} minutes · {{ 'Active' if s.active else 'Hidden' }} · TTBG fee {{ '%g'|format(s.fee_bps/100) }}%</span></div><div><strong>{{ s.price_cents|money }}</strong> <a class="button outline" href="{{ url_for('team.price',sid=s.id) }}">Set my price</a></div></div>{% else %}<p>Your team is preparing your services. Prices can be set here once a service is added.</p>{% endfor %}</section>{% endif %}<div class="stats"><div><span>{{ 'Student reservations' if m else 'My reservations' }}</span><strong>{{ bookings|selectattr('status','equalto','demo_reserved')|list|length }}</strong><small>Demo sessions</small></div><div><span>{{ 'Estimated mentor share' if m else 'Demo session value' }}</span><strong>{{ (bookings|selectattr('status','equalto','demo_reserved')|sum(attribute='earnings_cents' if m else 'price_cents'))|money }}</strong><small>{{ 'Not earned or payable' if m else 'No money charged' }}</small></div><div><span>Learning format</span><strong>1:1</strong><small>Online mentorship</small></div></div><div class="panel no-pad"><div class="panel-title"><h2>Your sessions</h2><span class="badge">Demo only</span></div>{{ bookings_table(bookings,mentor_view=m) }}</div></div>{% endblock %}
+{% extends "base.html" %}
+{% block title %}Applications | TTBG{% endblock %}
+
+{% block content %}
+<section class="section dashboard-section">
+    <div class="container">
+        <div class="page-heading">
+            <div>
+                <p class="eyebrow">Mentor onboarding</p>
+                <h1>Applications</h1>
+                <p>Review candidates and manage onboarding status.</p>
+            </div>
+            <a
+                class="secondary-button"
+                href="{{ url_for('public.apply') }}"
+                target="_blank"
+            >
+                Open public form
+            </a>
+        </div>
+
+        <div class="stat-grid">
+            <div class="stat-card">
+                <span>Total</span>
+                <strong>{{ counts.total }}</strong>
+            </div>
+            <div class="stat-card">
+                <span>New</span>
+                <strong>{{ counts.new }}</strong>
+            </div>
+            <div class="stat-card">
+                <span>Under review</span>
+                <strong>{{ counts.review }}</strong>
+            </div>
+            <div class="stat-card">
+                <span>Approved pipeline</span>
+                <strong>{{ counts.approved }}</strong>
+            </div>
+        </div>
+
+        <div class="card table-card">
+            {% if applications %}
+                <div class="table-wrap">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Applicant</th>
+                                <th>Area of expertise</th>
+                                <th>Contact preference</th>
+                                <th>Submitted</th>
+                                <th>Status</th>
+                                <th>Assigned to</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for application in applications %}
+                            <tr>
+                                <td>
+                                    <a
+                                        class="table-link"
+                                        href="{{ url_for(
+                                            'admin.application_detail',
+                                            application_id=application.id
+                                        ) }}"
+                                    >
+                                        {{ application.full_name }}
+                                    </a>
+                                    <small>{{ application.email }}</small>
+                                </td>
+                                <td>{{ application.area_of_expertise }}</td>
+                                <td>
+                                    {{ application.preferred_contact_method
+                                       or "Not provided" }}
+                                </td>
+                                <td>
+                                    {{ application.submitted_at.strftime(
+                                        "%b %d, %Y"
+                                    ) }}
+                                </td>
+                                <td>
+                                    <span class="status-pill">
+                                        {{ application.status }}
+                                    </span>
+                                </td>
+                                <td>
+                                    {{ application.assigned_to or "Unassigned" }}
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            {% else %}
+                <div class="empty-state">
+                    <h2>No applications yet</h2>
+                    <p>New mentor applications will appear here when submitted through the public form.</p>
+                </div>
+            {% endif %}
+        </div>
+    </div>
+</section>
+{% endblock %}

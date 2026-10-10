@@ -1,0 +1,134 @@
+{% extends "base.html" %}
+{% block title %}{{ application.full_name }} | TTBG{% endblock %}
+
+{% block content %}
+<section class="section dashboard-section">
+    <div class="container">
+        <a
+            class="back-link"
+            href="{{ url_for('admin.dashboard') }}"
+        >
+            ← Back to applications
+        </a>
+
+        <div class="detail-layout">
+            <div>
+                <div class="card applicant-card">
+                    <div class="applicant-heading">
+                        <div>
+                            <p class="eyebrow">
+                                Application #{{ application.id }}
+                            </p>
+                            <h1>{{ application.full_name }}</h1>
+                            <p>{{ application.area_of_expertise }}</p>
+                        </div>
+                        <span class="status-pill">
+                            {{ application.status }}
+                        </span>
+                    </div>
+
+                    <div class="detail-grid">
+                        <div>
+                            <span>Email</span>
+                            <strong>{{ application.email }}</strong>
+                        </div>
+                        <div>
+                            <span>Phone</span>
+                            <strong>{{ application.phone }}</strong>
+                        </div>
+                        <div>
+                            <span>Years of experience</span>
+                            <strong>
+                                {{ application.years_experience
+                                   or "Not provided" }}
+                            </strong>
+                        </div>
+                        <div>
+                            <span>Preferred contact method</span>
+                            <strong>
+                                {{ application.preferred_contact_method
+                                   or "Not provided" }}
+                            </strong>
+                        </div>
+                        <div>
+                            <span>Submitted</span>
+                            <strong>
+                                {{ application.submitted_at.strftime(
+                                    "%b %d, %Y at %I:%M %p"
+                                ) }}
+                            </strong>
+                        </div>
+                    </div>
+
+                    <div class="response-section">
+                        <h2>Tell us about yourself</h2>
+                        <p>
+                            {{ application.about_yourself or "Not provided" }}
+                        </p>
+                    </div>
+
+                    <div class="response-section">
+                        <h2>Mentorship support areas</h2>
+                        {% if application.support_area_list %}
+                            <div class="tag-list">
+                                {% for area in application.support_area_list %}
+                                    <span class="response-tag">{{ area }}</span>
+                                {% endfor %}
+                            </div>
+                        {% else %}
+                            <p>Not provided</p>
+                        {% endif %}
+                    </div>
+
+                    <div class="response-section">
+                        <h2>Acknowledgement</h2>
+                        <p>
+                            {% if application.acknowledgement %}
+                                Confirmed
+                            {% else %}
+                                Not confirmed
+                            {% endif %}
+                        </p>
+                    </div>
+                </div>
+            </div>
+
+            <aside>
+                <form method="post" class="card review-card">
+                    {{ form.hidden_tag() }}
+                    <h2>Internal review</h2>
+
+                    <div class="field">
+                        {{ form.status.label }}
+                        {{ form.status() }}
+                    </div>
+
+                    <div class="field">
+                        {{ form.assigned_to.label }}
+                        {{ form.assigned_to(
+                            placeholder=(
+                                "Destinee or logistics team member"
+                            )
+                        ) }}
+                    </div>
+
+                    <div class="field">
+                        {{ form.internal_notes.label }}
+                        {{ form.internal_notes(
+                            rows="10",
+                            placeholder=(
+                                "Private notes are only visible "
+                                "to the team."
+                            )
+                        ) }}
+                    </div>
+
+                    {{ form.submit(
+                        class_="primary-button full-width"
+                    ) }}
+                </form>
+            </aside>
+        </div>
+    </div>
+</section>
+{% endblock %}
