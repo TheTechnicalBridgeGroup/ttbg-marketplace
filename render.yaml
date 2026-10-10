@@ -1,25 +1,16 @@
 services:
   - type: web
-    name: ttbg-mentor-portal
+    name: ttbg-marketplace
     runtime: python
-    region: ohio
-    plan: free
     buildCommand: pip install -r requirements.txt
-    startCommand: >-
-      gunicorn --bind 0.0.0.0:$PORT
-      --workers 1
-      --threads 4
-      --timeout 120
-      run:app
-    healthCheckPath: /healthz
+    startCommand: flask --app run init-db && gunicorn run:app --bind 0.0.0.0:$PORT --workers 2 --timeout 60
+    healthCheckPath: /health
     envVars:
       - key: PYTHON_VERSION
-        value: 3.13.5
+        value: 3.12.8
       - key: SECRET_KEY
         generateValue: true
       - key: DATABASE_URL
         sync: false
-      - key: ADMIN_EMAIL
-        sync: false
-      - key: ADMIN_PASSWORD
-        sync: false
+      - key: COOKIE_SECURE
+        value: "true"

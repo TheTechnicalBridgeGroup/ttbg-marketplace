@@ -1,112 +1,128 @@
-# TTBG Mentor Portal
+# TTBG Marketplace — v0.2.2
 
-The TTBG Mentor Portal is the production application portal for
-The Technical Bridge Group. It supports the mentor-application workflow:
+The TTBG Marketplace provides the production mentor directory, team-led onboarding, account access, and mentor-controlled service pricing. The navy-and-gold design, logo, and light/dark mode are retained.
 
-1. A mentor submits the public application form.
-2. The application is committed to the database.
-3. The logistics team receives an optional email notification.
-4. An authorized administrator or logistics user signs in.
-5. The team reviews the application and updates its status and internal notes.
+**Scheduling and payments are handled separately.** This code does not connect to Acuity or a payment provider. Public pages direct visitors to TTBG to arrange sessions; generated time slots and simulated reservation creation are disabled outside automated tests. No appointments, charges, emails, or payouts are created by this application.
 
-## Local setup on Windows
+## What changed in v0.2
+
+- Every **Become a mentor** link opens https://ttbg-mentor-portal.onrender.com/apply. The marketplace does not accept new mentor applications.
+- Admins and the onboarding team can create and update mentor profiles, assign an owner, record private notes, and track publication readiness.
+- Profiles have draft, review, approved, suspended, and deleted states. Suspension blocks sign-in and new reservations immediately, including already signed-in sessions.
+- Delete removes a profile from the public directory and normal workspace listing. It is a recoverable deletion: account and booking history remain, and deleted profiles can be restored to draft.
+- Mentors change their own service prices in dollars from their dashboard. They cannot change TTBG commission or another mentor’s rates. Existing bookings keep their original price/fee; pricing does not initiate checkout or payment.
+- New admin-created accounts use one-time activation links. The mentor chooses their password. Links expire in seven days; replacement links invalidate older links.
+- An onboarding staff role lets your team do this work without using your admin account.
+
+## Quick start on Windows
+
+1. Extract the folder. Install Python 3.12 or newer if necessary.
+2. Double-click `start-windows.bat`. It prepares the local environment and starts the app.
+3. Open http://127.0.0.1:5000. Keep the terminal open.
+4. In a second terminal inside the project folder, create your administrator:
 
 ```powershell
-cd ttbg-mentor-portal
-py -m venv .venv
-.\.venv\Scripts\Activate.ps1
-pip install -r requirements.txt
-Copy-Item .env.example .env
+.venv\Scripts\python.exe -m flask --app run create-admin
 ```
 
-Open `.env` and replace the example secret, administrator email, and password.
+The command prompts for your name, email, and password (at least 12 characters). No shared/default administrator password is shipped.
 
-Then run:
+For an onboarding team member:
 
 ```powershell
+.venv\Scripts\python.exe -m flask --app run create-onboarding-user
+```
+
+Each staff member should have their own account. Staff accounts access the team workspace, mentor profiles, services, and archived test reservation records. There is no team-account management UI in this release; creation is through the authorized CLI.
+
+## Existing v0.1 installation
+
+Back up your database first. Replace the application source with v0.2, keeping your private `.env` and existing database. Run:
+
+```bash
+pip install -r requirements.txt
+flask --app run init-db
+```
+
+The upgrade adds three tables for profile details, invitations, and activity history. It does not change or drop existing v0.1 columns. Existing users, passwords, mentor profiles, services, and bookings remain. The Windows launcher performs this initialization; the included Render start command does as well.
+
+Existing approved real profiles stay published. Fictional profiles marked in the database are hidden from public listings and direct public profile URLs, but remain available to staff for cleanup. New publication decisions require the readiness checklist. Editing an approved profile to remove required information/checklist items returns it to review. Existing mentors keep their sign-in and gain price controls.
+
+## The onboarding workflow
+
+1. **Application:** The mentor applies through the existing portal. Review their application there using your current process. Data does not import automatically.
+2. **Create draft:** In Workspace, select **Create mentor profile**. Enter public display name, account email, primary lane, and professional title. Save incomplete drafts as work progresses.
+3. **Build profile:** Complete biography, credentials, education, years of experience, specialties, languages, timezone, and approach to sessions. Contact phone, application reference, owner, and team notes are private.
+4. **Prepare services:** Add mentor-specific offerings, duration, starting price in USD, TTBG commission percentage, and optional Acuity IDs. Agree on the starting price with the mentor; they can change it after activation.
+5. **Track readiness:** Record application review, credential review, agreement receipt, orientation completion, and consent to publish. These are team attestations, not automatic verification. A complete biography, experience, and an active service are also required to publish.
+6. **Handoff account:** Generate an activation link from the overview, copy it, and send it privately through your usual onboarding channel. The app does not send it for you. The mentor sets their password and can review their profile and update rates.
+7. **Publish:** Choose Approved in the review decision. The profile appears in the public directory once all readiness checks pass.
+8. **Manage:** Update the profile, suspend access, or delete it through the controls. Suspend/delete require a reason and typed confirmation of the mentor’s name. Existing reservations are not automatically cancelled.
+
+An existing student email can be linked only after the team confirms that the account belongs to the approved applicant. It keeps its existing password and does not receive an activation link. Staff and existing mentor emails cannot be reused to create another profile.
+
+## Mentor pricing
+
+Mentors open **My dashboard → Set my price**. Amounts are USD, from $1.00 to $1,000.00 per service. Commission remains controlled by the team. Saving a price changes future reservations only and records the change in the team activity history. The marketplace does not collect funds or accrue earnings.
+
+## macOS / Linux
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+python setup_local.py
+flask --app run create-admin
 python run.py
 ```
 
-Open:
+## Configuration and account recovery
 
-- Public form: http://127.0.0.1:5000/apply
-- Team login: http://127.0.0.1:5000/login
-- Dashboard: http://127.0.0.1:5000/admin
+See `.env.example`. Do not commit `.env`, local databases, or `.venv`. Use a dedicated persistent external database on Render. Set `COOKIE_SECURE=true` under HTTPS. Set `PUBLIC_BASE_URL` to your hosted origin so activation links use the intended domain. Leave it empty for local development.
 
-## Email notifications
+Reservation simulation cannot be enabled through hosting environment variables. The existing production database schema and stored status values remain compatible; no column rename or data deletion is required.
 
-Email is optional. Applications are saved successfully even when email is
-disabled or temporarily fails.
+For an authorized password reset:
 
-To enable notifications, set these values in `.env`:
-
-```text
-NOTIFICATION_EMAIL=logistics@thetechnicalbridgegroup.com
-PORTAL_BASE_URL=http://127.0.0.1:5000
-SMTP_HOST=smtp.gmail.com
-SMTP_PORT=587
-SMTP_USERNAME=notifications@thetechnicalbridgegroup.com
-SMTP_PASSWORD=your-app-password
-SMTP_FROM_EMAIL=notifications@thetechnicalbridgegroup.com
-SMTP_USE_TLS=true
-SMTP_USE_SSL=false
+```bash
+flask --app run reset-password
 ```
 
-For a Google account using SMTP authentication, do not place the normal Google
-account password in this file. Use an application-specific credential where
-the account and Workspace security settings permit it.
+A reset revokes outstanding activation links. Suspension/deletion still blocks access regardless of password changes.
 
-Keep `.env` private. It is excluded by `.gitignore` and must never be committed.
+## Current boundaries
 
-## Current public application
+- Acuity IDs are stored only. The marketplace does not fetch availability, schedule appointments, process payments, or calculate earned balances. Archived test records retain their original values and are not counted as revenue.
+- No automatic portal import, help desk ticket creation, emails, file uploads, photo uploads, checkout, refunds, or payouts.
+- All staff share workspace visibility; assigned owners help coordination and do not restrict access.
+- A mentor account cannot make new student reservations through this marketplace. Existing student booking records remain accessible by their detail links after conversion.
+- Deletion is recoverable removal, not permanent personal-data erasure. Reservations and audit records remain for continuity.
+- Database upgrade has been tested on SQLite. Actual Render and PlanetScale connections were not accessed or deployed.
 
-- Full name
-- Email
-- Phone
-- Years of experience
-- Preferred contact method
-- Industry / area of expertise
-- Tell us about yourself
-- Mentorship support areas
-- Required acknowledgement
+## Tests
 
-## Database
-
-Local development defaults to SQLite. The same SQLAlchemy models can use
-PostgreSQL in production through `DATABASE_URL`.
-
-Example production format:
-
-```text
-postgresql+psycopg://USER:PASSWORD@HOST:5432/DATABASE
+```bash
+pip install pytest
+python -m pytest -q
 ```
 
-## Portal features
+See `VALIDATION.md` for checks, `DEPLOYMENT.md` for hosting, and `ARCHITECTURE.md` for the model and integration scope.
 
-- Public mentor application
-- Server-side validation and CSRF protection
-- Honeypot spam check
-- Secure administrator login
-- Application counts and review table
-- Application detail view
-- Status updates
-- Internal notes
-- Optional logistics email notification
+## v0.2.1 — light and dark mode
 
-Not included yet:
+Use the **Light mode / Dark mode** selector in the top bar on any page. The existing light appearance is the default, including on devices set to dark mode. Dark mode uses deep navy surfaces, gold actions, readable light text, and a white logo tile that preserves the original logo.
 
-- Resume uploads
-- Acuity integration
-- Stripe Connect onboarding
-- Mentor-facing accounts
+The selection is remembered in this browser’s local storage across pages and visits, and syncs across open tabs on the same origin. It is a browser preference, not an account setting. If storage is blocked, switching still works for the current page; if JavaScript is disabled, the app remains in light mode and hides the selector.
 
-## Production deployment
+Upgrade from v0.2 by replacing the application files while keeping your `.env` and database. No database schema or dependency changes are required for v0.2.1.
 
-The portal runs on Render with a PlanetScale PostgreSQL database configured
-through `DATABASE_URL`. The included `render.yaml` defines the web service;
-it does not create a database. See `DEPLOYMENT.md` for setup and release
-verification instructions.
+## v0.2.2 production presentation
 
-Set `PORTAL_BASE_URL` to the portal's public HTTPS address so notification
-emails link to the production dashboard. Local setup instructions and example
-credentials in this repository are for development only.
+- Public navigation, account pages, dashboard copy, health version, and hosting service name use the marketplace branding.
+- Fictional profiles are excluded from public views and published mentor counts. Existing records are retained.
+- Financial simulations are removed from dashboards. Previous test reservations are labeled as historical records.
+- The fictional-profile seeding command and obsolete screenshots are removed.
+- Scheduling links no longer advertise generated availability. Existing booking URLs explain how to contact TTBG; reservation POST requests are blocked in normal operation.
+- Accounts, passwords, database tables, branding assets, mentor onboarding, pricing controls, and theme selection are preserved.
+
+Use the existing marketplace repository and hosting service when deploying an update. No live deployment has been performed as part of this source update.
