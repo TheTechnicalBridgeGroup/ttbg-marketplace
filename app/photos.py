@@ -118,7 +118,7 @@ def private_image(pid):
 @bp.get('/media/mentors/<int:mid>/photo')
 def public_image(mid):
     m=db.get_or_404(Mentor,mid)
-    if m.status!='approved' or m.is_demo or not account_enabled(m.user) or not m.photo or not m.photo.approved_id:abort(404)
+    if not m.publicly_visible or not m.photo or not m.photo.approved_id:abort(404)
     item=db.session.get(PhotoSubmission,m.photo.approved_id)
     if not item or item.status!='approved' or not item.image:abort(404)
     response=send_file(io.BytesIO(item.image),mimetype='image/jpeg',download_name='profile.jpg',max_age=0)

@@ -4,7 +4,7 @@ from datetime import timedelta
 from urllib.parse import urlsplit
 import pytest
 from PIL import Image
-from test_workflows import app, login, payload
+from test_workflows import app, login, payload, verify_mail
 from app.models import (db,User,Mentor,Service,Booking,AccountAccess,PasswordLink,PlatformAudit,PhotoSubmission,MentorPhoto,ServiceScheduling,PlatformSettings,SchemaRevision,now)
 from app.security import settings
 from app.booking_config import split_amount,validate_booking_url
@@ -34,6 +34,7 @@ def test_role_boundaries_and_admin_creation(app):
         u=User.query.filter_by(email='manager@example.com').one();assert u.role=='account_manager'
         assert PW not in u.password_hash
     new=app.test_client();assert new.post(urlsplit(link).path,data={'password':'new-manager-password','confirm':'new-manager-password'}).status_code==302
+    verify_mail(new,app,'manager@example.com','new-manager-password')
     assert new.get('/admin').status_code==200
     assert new.get('/admin/users').status_code==403
 
@@ -161,8 +162,8 @@ def test_upgrade_preserves_identity_history_and_changes_future_split(app):
         assert db.session.get(User,1).role=='admin' and db.session.get(User,1).password_hash==before
         assert db.session.get(Service,1).fee_bps==2000
         assert Booking.query.one().fee_cents==1500
-        assert SchemaRevision.query.count()==2
-        upgrade();assert SchemaRevision.query.count()==2 and User.query.count()==4
+        assert SchemaRevision.query.count()==3
+        upgrade();assert SchemaRevision.query.count()==3 and User.query.count()==4
 
 
 def test_disabled_mentor_hides_photo_profile_and_blocks_existing_session(app):

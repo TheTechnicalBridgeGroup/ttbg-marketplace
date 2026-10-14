@@ -11,6 +11,7 @@ from .models import db, User, Mentor, Service, Booking, MentorDetails, MentorInv
 from .forms import AdminProfileForm, LifecycleForm, ActivateForm, MentorPriceForm, PROFILE_CHECKS
 from .onboarding_logic import details_for, audit, readiness
 from .security import account_enabled, sign_in, invalidate
+from .registration_security import normalized_email,email_allowed,notify_verification
 bp=Blueprint('team',__name__)
 DETAIL_FIELDS=['phone','timezone','specialties','languages','years_experience','education','session_approach','application_reference','internal_notes']+PROFILE_CHECKS
 
@@ -22,6 +23,7 @@ def owner_choices(form):
 @roles('admin','account_manager','onboarding')
 def profile_edit(mid=None):
     m=db.get_or_404(Mentor,mid) if mid else None
+    if m and m.user.role=='archive':abort(404)
     if m and m.status=='deleted':
         flash('Restore this profile to draft before editing it.','error');return redirect(url_for('main.review',mid=mid))
     form=AdminProfileForm();owner_choices(form)
@@ -32,7 +34,7 @@ def profile_edit(mid=None):
             for f in DETAIL_FIELDS:getattr(form,f).data=getattr(m.details,f)
             form.owner_id.data=m.details.owner_id or 0
     if form.validate_on_submit():
-        email=form.email.data.strip().lower()
+        email=normalized_email(form.email.data)
         existing=User.query.filter_by(email=email).first()
         if m and existing and existing.id!=m.user_id:
             form.email.errors.append('This email belongs to another account.')
@@ -66,6 +68,7 @@ def profile_edit(mid=None):
             except IntegrityError:
                 db.session.rollback();form.email.errors.append('That email was just registered elsewhere. Reload and try again.')
             else:
+                if not email_allowed(m.user):notify_verification(m.user)
                 flash('Draft profile created. Add services, finish the checklist, and prepare account access.' if creating else 'Profile updated.','success')
                 return redirect(url_for('main.review',mid=m.id))
     return render_template('profile_edit.html',form=form,m=m,checks=PROFILE_CHECKS)
@@ -74,6 +77,7 @@ def profile_edit(mid=None):
 @roles('admin','account_manager','onboarding')
 def lifecycle(mid):
     m=db.get_or_404(Mentor,mid);form=LifecycleForm()
+    if m.user.role=='archive':abort(404)
     if request.method=='GET':
         action=request.args.get('action','suspend')
         form.action.data=action if action in ['suspend','delete','restore'] else 'suspend'
@@ -128,6 +132,8 @@ def activate(token):
         d=details_for(m);d.activated_at=now()
         db.session.add(MentorAudit(mentor_id=m.id,actor_id=m.user_id,action='Account activated',detail='Mentor chose their own password.'))
         invalidate(m.user);db.session.commit();sign_in(m.user)
+        if not email_allowed(m.user):
+            notify_verification(m.user);return redirect(url_for('verification.notice'))
         flash('Your account is ready. You can review your profile and set your prices.','success')
         return redirect(url_for('main.dashboard'))
     return render_template('activate.html',m=m,form=form)

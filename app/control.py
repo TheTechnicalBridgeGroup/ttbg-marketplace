@@ -21,6 +21,7 @@ from .security import (settings, access_for, account_enabled, invalidate, sign_i
 from .forms import ActivateForm
 from .control_forms import CreateUserForm, EditUserForm, ConfirmAdmin, SettingsForm, IntegrationForm, SchedulingForm
 from .booking_config import validate_booking_url, split_amount
+from .registration_security import normalized_email,email_allowed,notify_verification
 
 bp=Blueprint('control',__name__)
 
@@ -40,18 +41,18 @@ def lock_identity():
 @roles('admin')
 def overview():
     counts={t.name:db.session.scalar(select(func.count()).select_from(t)) for t in db.metadata.sorted_tables}
-    roles_count=dict(db.session.query(User.role,func.count(User.id)).group_by(User.role).all())
+    roles_count=dict(db.session.query(User.role,func.count(User.id)).filter(User.role!='archive').group_by(User.role).all())
     states=dict(db.session.query(Mentor.status,func.count(Mentor.id)).filter_by(is_demo=False).group_by(Mentor.status).all())
     recent=User.query.filter(User.created_at>=now()-timedelta(days=30)).count()
-    published=Mentor.query.filter_by(status='approved',is_demo=False).outerjoin(AccountAccess,AccountAccess.user_id==Mentor.user_id).filter(or_(AccountAccess.enabled.is_(True),AccountAccess.user_id.is_(None))).count()
-    return render_template('control.html',counts=counts,role_counts=roles_count,states=states,recent=recent,published=published,pending=PhotoSubmission.query.filter_by(status='pending').count())
+    published=sum(1 for m in Mentor.query.filter_by(status='approved',is_demo=False) if m.publicly_visible)
+    return render_template('control.html',account_total=User.query.filter(User.role!='archive').count(),counts=counts,role_counts=roles_count,states=states,recent=recent,published=published,pending=PhotoSubmission.query.filter_by(status='pending').count())
 
 @bp.get('/admin/users')
 @roles('admin')
 def users():
     q=request.args.get('q','').strip()[:100]
     role=request.args.get('role','')
-    query=User.query
+    query=User.query.filter(User.role!='archive')
     if q:query=query.filter(or_(User.name.ilike('%'+q+'%'),User.email.ilike('%'+q+'%')))
     if role in ROLE_LABELS:query=query.filter_by(role=role)
     page=query.order_by(User.id).paginate(page=request.args.get('page',1,type=int),per_page=30,error_out=False)
@@ -62,7 +63,7 @@ def users():
 def create_user():
     form=CreateUserForm()
     if form.validate_on_submit() and confirmed(form):
-        email=form.email.data.strip().lower()
+        email=normalized_email(form.email.data)
         if User.query.filter_by(email=email).first():form.email.errors.append('An account with that email already exists.')
         else:
             u=User(name=form.name.data.strip(),email=email,role=form.role.data,password_hash=generate_password_hash(secrets.token_urlsafe(48)))
@@ -72,13 +73,17 @@ def create_user():
                 link=password_link(u,'setup')
             except IntegrityError:
                 db.session.rollback();form.email.errors.append('This email was just registered. Choose the existing account.')
-            else:return render_template('password_link.html',u=u,link=link,purpose='Account setup')
+            else:
+                notify_verification(u)
+                return render_template('password_link.html',u=u,link=link,purpose='Account setup')
     return render_template('user_edit.html',form=form,u=None)
 
 @bp.route('/admin/users/<int:uid>',methods=['GET','POST'])
 @roles('admin')
 def edit_user(uid):
-    u=db.get_or_404(User,uid);form=EditUserForm()
+    u=db.get_or_404(User,uid)
+    if u.role=='archive':abort(404)
+    form=EditUserForm()
     form.role.choices=[(r,ROLE_LABELS[r]) for r in ('student','mentor','account_manager','admin')]
     if request.method=='GET':
         form.name.data=u.name;form.email.data=u.email;form.role.data='account_manager' if u.role=='onboarding' else u.role
@@ -86,7 +91,7 @@ def edit_user(uid):
     if form.validate_on_submit() and confirmed(form):
         lock_identity()
         old_role=u.role
-        new_role=form.role.data;email=form.email.data.strip().lower()
+        new_role=form.role.data;email=normalized_email(form.email.data)
         if u.id==current_user.id and (new_role!='admin' or not form.enabled.data):
             form.role.errors.append('You cannot disable or demote your own admin account.')
         elif (u.mentor and new_role!='mentor') or (not u.mentor and new_role=='mentor'):
@@ -104,6 +109,7 @@ def edit_user(uid):
                 except IntegrityError:db.session.rollback();form.email.errors.append('That email was just registered elsewhere.')
                 else:
                     if uid==current_user.id:session['auth_version']=access_for(u).session_version
+                    if not email_allowed(u):notify_verification(u)
                     flash('Account updated. Previous sessions and unused setup links were revoked.','success')
                     return redirect(url_for('control.edit_user',uid=uid))
     return render_template('user_edit.html',u=u,form=form)
@@ -149,14 +155,19 @@ def password_reset(token):
             details_for(u.mentor).activated_at=now()
         log('Password changed',f'user:{u.id}','One-time link consumed.',actor_id=u.id)
         db.session.commit();sign_in(u)
+        if not email_allowed(u):
+            notify_verification(u);return redirect(url_for('verification.notice'))
         flash('Your password has been saved.','success');return redirect(url_for('main.dashboard'))
     return render_template('reset_password.html',form=form)
 
 @bp.route('/admin/settings',methods=['GET','POST'])
 @roles('admin')
 def platform_settings():
-    cfg=settings();form=SettingsForm(obj=cfg)
-    if request.method=='GET':form.fee_percent.data=cfg.fee_bps/100
+    from .security import help_settings
+    cfg=settings();help_cfg=help_settings();form=SettingsForm(obj=cfg)
+    if request.method=='GET':
+        form.fee_percent.data=cfg.fee_bps/100
+        form.help_enabled.data=help_cfg.enabled;form.help_phone.data=help_cfg.phone
     if form.validate_on_submit() and confirmed(form):
         if form.booking_mode.data=='acuity' and form.scheduling_provider.data!='acuity':
             form.scheduling_provider.errors.append('Choose Acuity Scheduling for native availability.')
@@ -166,9 +177,10 @@ def platform_settings():
             before=f'share={cfg.fee_bps}; provider={cfg.scheduling_provider}; mode={cfg.booking_mode}; maintenance={cfg.maintenance_mode}'
             for key in ('site_title','description','support_email','registration_open','maintenance_mode','scheduling_provider','booking_mode'):
                 setattr(cfg,key,getattr(form,key).data)
+            help_cfg.enabled=form.help_enabled.data;help_cfg.phone=(form.help_phone.data or '').strip()
             cfg.fee_bps=int(form.fee_percent.data*100)
             Service.query.update({'fee_bps':cfg.fee_bps})
-            log('Platform settings updated','platform',before+f' → share={cfg.fee_bps}; provider={cfg.scheduling_provider}; mode={cfg.booking_mode}; maintenance={cfg.maintenance_mode}. '+form.reason.data.strip())
+            log('Platform settings updated','platform',before+f' → help_enabled={help_cfg.enabled}; help_phone={help_cfg.phone}; share={cfg.fee_bps}; provider={cfg.scheduling_provider}; mode={cfg.booking_mode}; maintenance={cfg.maintenance_mode}. '+form.reason.data.strip())
             db.session.commit();flash('Settings saved. Commission applies to future sessions; existing booking snapshots are unchanged.','success')
             return redirect(url_for('control.platform_settings'))
     return render_template('settings.html',form=form,cfg=cfg,example=split_amount(10000,cfg.fee_bps))
@@ -244,5 +256,5 @@ def resources():
     usage=shutil.disk_usage(current_app.instance_path if os.path.isdir(current_app.instance_path) else current_app.root_path)
     try:db.session.execute(select(1));database='Reachable'
     except Exception:db.session.rollback();database='Unavailable'
-    info={'Release':'0.4.1','Python':platform.python_version(),'Flask':version('flask'),'Database engine':db.engine.dialect.name,'Database connection':database,'Runtime disk free':f'{usage.free/(1024**3):.1f} GiB','Runtime disk total':f'{usage.total/(1024**3):.1f} GiB','Photo storage':'Database (included in database backups)','Session cookies secure':str(current_app.config['SESSION_COOKIE_SECURE']),'Scheduling API':'Acuity read-only availability; verify in Support Center','Payment processing':'Not connected'}
+    info={'Release':'0.5.0','Python':platform.python_version(),'Flask':version('flask'),'Database engine':db.engine.dialect.name,'Database connection':database,'Runtime disk free':f'{usage.free/(1024**3):.1f} GiB','Runtime disk total':f'{usage.total/(1024**3):.1f} GiB','Photo storage':'Database (included in database backups)','Session cookies secure':str(current_app.config['SESSION_COOKIE_SECURE']),'Scheduling API':'Acuity read-only availability; verify in Support Center','Payment processing':'Not connected'}
     return render_template('resources.html',info=info)

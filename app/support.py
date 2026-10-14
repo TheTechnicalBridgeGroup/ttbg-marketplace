@@ -18,7 +18,8 @@ staff=roles('admin','account_manager')
 # An explicit allowlist: never enumerate arbitrary environment variables or expose the app signing key.
 CREDENTIALS={'acuity':('Acuity API key','ACUITY_API_KEY'),
              'stripe':('Stripe secret key','STRIPE_SECRET_KEY'),
-             'stripe_webhook':('Stripe webhook signing secret','STRIPE_WEBHOOK_SECRET')}
+             'stripe_webhook':('Stripe webhook signing secret','STRIPE_WEBHOOK_SECRET'),
+             'turnstile':('Turnstile secret key','TURNSTILE_SECRET_KEY')}
 
 class NoteForm(FlaskForm):
     body=TextAreaField('Internal note',validators=[DataRequired(),Length(min=3,max=2000)])
@@ -51,7 +52,7 @@ def paginate(query):
 @staff
 def home():
     q=request.args.get('q','').strip()[:100];role=request.args.get('role','')
-    query=User.query
+    query=User.query.filter(User.role!='archive')
     if q:
         conditions=[User.name.icontains(q,autoescape=True),User.email.icontains(q,autoescape=True)]
         if q.isdigit() and len(q)<10:conditions.append(User.id==int(q))
@@ -59,13 +60,14 @@ def home():
     if role in ('student','mentor','account_manager','admin'):query=query.filter_by(role=role)
     page=paginate(query.order_by(User.id.desc()))
     return render_template('support/home.html',page=page,q=q,role=role,
-        total=User.query.count(),open_errors=SupportIncident.query.filter_by(status='open').count(),
+        total=User.query.filter(User.role!='archive').count(),open_errors=SupportIncident.query.filter_by(status='open').count(),
         recent_logins=LoginAttempt.query.filter(LoginAttempt.created_at>now()-timedelta(minutes=15)).count())
 
 @bp.route('/accounts/<int:uid>',methods=['GET','POST'])
 @staff
 def account(uid):
     u=db.get_or_404(User,uid);form=NoteForm()
+    if u.role=='archive':abort(404)
     if form.validate_on_submit():
         body=form.body.data.strip()
         if len(body)<3:form.body.errors.append('Enter at least three non-space characters.')
@@ -96,6 +98,7 @@ def account(uid):
 @staff
 def recover(uid):
     u=db.get_or_404(User,uid)
+    if u.role=='archive':abort(404)
     if current_user.role!='admin' and u.role not in ('student','mentor'):abort(403)
     form=RecoveryForm()
     if form.validate_on_submit():

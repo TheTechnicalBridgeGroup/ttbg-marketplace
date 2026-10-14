@@ -15,7 +15,7 @@ def access_for(user):
     return user.access
 
 def account_enabled(user):
-    return (not user.access or user.access.enabled) and not (user.mentor and user.mentor.status in ('suspended','deleted'))
+    return user.role!='archive' and (not user.access or user.access.enabled) and not (user.mentor and user.mentor.status in ('suspended','deleted'))
 
 def sign_in(user):
     row=access_for(user);row.last_login_at=now();db.session.commit()
@@ -37,6 +37,13 @@ def settings():
     if item is None:
         item=PlatformSettings(id=1)
         db.session.add(item);db.session.flush()
+    return item
+
+def help_settings():
+    from .models import HelpSettings
+    item=db.session.get(HelpSettings,1)
+    if item is None:
+        item=HelpSettings(id=1,enabled=True,phone='');db.session.add(item);db.session.flush()
     return item
 
 def password_link(user,purpose='reset'):

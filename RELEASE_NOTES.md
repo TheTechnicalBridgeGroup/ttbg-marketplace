@@ -1,3 +1,15 @@
+# v0.5.0 — Accounts, documentation, and guided help
+
+- Permanent deletion of any non-admin account from Support account details, with email/password/reason confirmation. Every Admin account is protected. Financial snapshots and shared history are retained through non-login archive references.
+- Role-protected documentation with spaces, nested pages, search, staff Add/Edit/Delete, stale-edit checks, and compressed private image uploads.
+- Lightweight automated help guide with configurable public team phone number, email, and help-desk handoff.
+- New-account and changed-email verification, automatic SMTP verification email, single-use one-hour links, restricted pending access, resend limits and safe delivery failure handling.
+- Cloudflare Turnstile registration/resend protection with server-side hostname/action checks, replay protection, and scoped CSP.
+- Database-backed registration/verification limits and a cleanup CLI.
+- Existing accounts retain access; disabled/suspended accounts remain restricted. No mass-disable command was added.
+
+Read SECURITY_SETUP.md before deploying. New public registration requires SMTP configuration; Turnstile requires your widget keys and hostname configuration. Live email delivery and Cloudflare challenges still need deployment verification.
+
 # v0.4.1 — Help desk shortcut
 
 - Added a Submit a ticket button throughout the staff-only Support Center.

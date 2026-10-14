@@ -1,6 +1,7 @@
 import click
 from werkzeug.security import generate_password_hash
 from .models import db, User, now, MentorInvitation
+from .registration_security import mark_trusted,normalized_email
 
 def register_commands(app):
     @app.cli.command('init-db')
@@ -12,9 +13,14 @@ def register_commands(app):
     @click.option('--name',prompt=True)
     @click.password_option(confirmation_prompt=True)
     def create_admin(email,name,password):
-        if len(password)<12: raise click.ClickException('Use at least 12 characters.')
-        if User.query.filter_by(email=email.strip().lower()).first(): raise click.ClickException('Email already exists; no changes made.')
-        db.session.add(User(email=email.strip().lower(),name=name,password_hash=generate_password_hash(password),role='admin'))
+        if len(password)<12 or len(password)>128: raise click.ClickException('Use between 12 and 128 characters.')
+        from email_validator import EmailNotValidError
+        try:email=normalized_email(email)
+        except EmailNotValidError:raise click.ClickException('Enter a valid email address.')
+        if User.query.filter_by(email=email).first(): raise click.ClickException('Email already exists; no changes made.')
+        email=normalized_email(email)
+        u=User(email=email,name=name,password_hash=generate_password_hash(password),role='admin')
+        db.session.add(u);mark_trusted(u)
         db.session.commit(); click.echo('Admin created.')
     @app.cli.command('create-account-manager')
     @click.option('--email',prompt=True)
@@ -27,8 +33,9 @@ def register_commands(app):
         if len(password)<12:raise click.ClickException('Use at least 12 characters.')
         if not name.strip() or len(name)>100:raise click.ClickException('Enter a name of 1–100 characters.')
         if User.query.filter_by(email=email).first():raise click.ClickException('Email already exists; no changes made.')
-        db.session.add(User(email=email,name=name.strip(),password_hash=generate_password_hash(password),role='account_manager'))
-        db.session.commit();click.echo('Account Manager created. They can manage mentor profiles and services in Workspace.')
+        u=User(email=email,name=name.strip(),password_hash=generate_password_hash(password),role='account_manager')
+        db.session.add(u)
+        db.session.commit();click.echo('Account Manager created. They must verify their email after signing in before accessing Workspace.')
     @app.cli.command('reset-password')
     @click.option('--email',prompt=True)
     @click.password_option(confirmation_prompt=True)
@@ -44,5 +51,12 @@ def register_commands(app):
             details_for(u.mentor).activated_at=now()
             MentorInvitation.query.filter_by(mentor_id=u.mentor.id).delete()
         db.session.commit();click.echo('Password updated; any mentor activation link was revoked.')
+
+    @app.cli.command('prune-security-records')
+    def prune_security_records():
+        from .models import SecurityRate,EmailIdentity
+        count=SecurityRate.query.filter(SecurityRate.expires_at<now()).delete(synchronize_session=False)
+        EmailIdentity.query.filter(EmailIdentity.expires_at<now()).update({'token_hash':None,'expires_at':None},synchronize_session=False)
+        db.session.commit();click.echo(f'Removed {count} expired rate counters and cleared expired verification tokens. Accounts unchanged.')
 
     app.cli.add_command(create_onboarding_user, 'create-onboarding-user')

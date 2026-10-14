@@ -1,4 +1,4 @@
-# Marketplace v0.4 architecture
+# Marketplace v0.5 architecture
 
 The Flask application retains the existing user, mentor, service, booking, onboarding-detail, invitation, and mentor-audit models. New functions are split into `security.py`, `control.py`, `photos.py`, `booking_config.py`, and `upgrade.py`, `support.py`, and `acuity.py`.
 
@@ -26,7 +26,7 @@ The migration is additive and runs before serving requests. It converts the lega
 
 `admin` is the highest application role. `account_manager` is the delegated mentor-management role; the former `onboarding` value is accepted for compatibility and migrated. All protected routes perform server-side role or ownership checks. User-submitted role and commission parameters cannot override those checks.
 
-Every request checks disabled-account state and the session revision. Disabling, changing identity/role, or resetting/revoking access invalidates older sessions. Password links use random tokens stored as SHA-256 hashes, expire after one hour, and use a conditional database update to prevent reuse. They are rendered once for private handoff; the app does not send mail. Mentor invitation behavior remains available, with account-disable checks and revocation on access changes.
+Every request checks disabled-account state and the session revision. Disabling, changing identity/role, or resetting/revoking access invalidates older sessions. Password links use random tokens stored as SHA-256 hashes, expire after one hour, and use a conditional database update to prevent reuse. They are rendered once for private handoff; these private setup/reset links are not emailed automatically. v0.5 sends separate mailbox-verification messages through SMTP. Mentor invitation behavior remains available, with account-disable checks and revocation on access changes.
 
 Self-demotion/disable is rejected. Identity mutation serializes through the settings row on databases supporting row locks and checks that an active Admin remains. Role changes are constrained to keep mentor/profile relationships consistent.
 
@@ -63,3 +63,23 @@ Flask's `got_request_exception` signal captures safe metadata and adds a random 
 The server uses HTTPS Basic authentication at fixed Acuity endpoints for `/me`, `/availability/dates`, and `/availability/times`. It never sends credentials to the browser for normal availability requests. Redirects are rejected, network calls have a 10-second timeout, and responses are limited to 1 MiB. The authenticated request rate is limited to 20 page/check requests per minute per account; a calendar page makes at most two provider calls. This is a basic application throttle, not a distributed edge rate limiter.
 
 Every availability page rechecks service activity, mentor publication/account access, and the platform provider/mode. Staff can inspect a publicly eligible mentor/service before activating native availability for students. Dates are validated against the selected month, a six-month horizon, and the selected IANA timezone. Returned times must have a UTC offset and fall on the requested date; past/duplicate slots are discarded. No synthetic fallback slots, appointment writes, payment transactions, or reservation locks are created. Selecting a slot creates only a local mailto draft, with explicit instructions that TTBG must confirm it.
+
+## v0.5 identity lifecycle
+
+`market_email_identity` holds an email snapshot, verification time, explicit legacy/bootstrap exemption, hashed single-use token and expiry, and last-send time. A SQLAlchemy before_flush listener attaches pending identities to new users and clears verification whenever an ORM-managed email changes. The one-time upgrade exempts existing rows without claiming mailbox verification. The request guard restricts pending accounts to verification, logout, health/static assets, and existing account-setup/reset routes. Profile publication and public image/availability access require verified/exempt identity.
+
+Verification links carry the random token in the URL fragment, which is not sent in HTTP URLs/referrers. A local script moves it to a CSRF-protected POST. GET does not consume it. Confirmation atomically consumes the email-bound, unexpired token, lets the recipient choose their own password, and invalidates earlier sessions/reset/invitation links. It does not automatically authenticate the bearer. Raw tokens are never stored in the database, sessions, audit records, or exposed on support screens.
+
+SMTP uses certificate-verified STARTTLS/SSL with authentication and a timeout. Public registration is closed if configuration is incomplete; sending failures preserve a pending account for retry. Mail URLs use only validated PUBLIC_BASE_URL, never request Host. Delivery is synchronous with a 10-second socket timeout, not a durable queue; monitor delivery and add a worker/outbox when actual volume requires one.
+
+`market_security_rate` contains atomic counters with expiries and HMAC keys. It supports registration/verification limits, resend cooldown/daily cap, and local Turnstile replay protection. The pruning CLI removes expired entries. Turnstile validation uses a fixed HTTPS endpoint, refuses redirects, limits response size, and checks an explicit hostname/action allowlist. CSP changes are limited to the two protected pages.
+
+Deletion rechecks permissions, password, confirmation email, the prohibition on deleting any Admin account in the transaction. Paid/non-test booking snapshots retain their identifiers, amounts, status, and dates; deleted participant references move to non-login archives and goals are cleared. For a deleted mentor with retained bookings, a hidden archive mentor/service supplies non-personal foreign-key targets. It deletes dependent records in FK order. Shared author/reviewer attribution moves to a new disabled archive principal and onboarding ownership becomes unassigned. The original account row is physically deleted; archive principals cannot authenticate or be edited/deleted in the account UI. Allocating the archive principal before deletion prevents old SQLite account IDs from being reused. No external provider deletion is performed.
+
+## v0.5 shared documentation and guided help
+
+`market_knowledge_page` stores space/title/body, a self-referencing parent, last editor/time, and an optimistic version counter. `market_knowledge_image` stores compressed WebP pixels and accessibility captions. The role decorator restricts all page/image reads to admin/account_manager/mentor and mutations to admin/account_manager. Text rendering escapes every input before constructing supported heading/list/paragraph markup. Image validation bounds upload bytes, megapixels, animations, final dimensions/bytes and per-page image count. Original metadata is not retained.
+
+Mutations serialize on the existing platform-settings row in databases supporting row locks, then use a conditional version increment to reject stale requests. Parent changes reject cycles and cross-space parenting; deleting a parent reparents its children. SQLite uses its normal write locking and is for local use. Audit records track page edits/deletes and image removals. Only the current document version is stored; there is no rollback/revision-content archive.
+
+`market_help_settings` is additive, with a public phone number and enabled flag. Admin settings changes require the existing password/reason confirmation. The help widget uses local JavaScript topic matching and textContent, without a chat API, remote data transmission, or browser persistence. Server-rendered links respect roles. Calling is an explicit tel: handoff; live-agent transfer/presence is not implemented.

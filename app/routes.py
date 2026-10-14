@@ -56,12 +56,12 @@ def browse():
     mentors=Mentor.query.filter_by(status='approved',is_demo=False).outerjoin(AccountAccess,AccountAccess.user_id==Mentor.user_id).filter(db.or_(AccountAccess.enabled.is_(True),AccountAccess.user_id.is_(None)))
     if lane in LANES: mentors=mentors.filter(Mentor.lane==lane)
     if q: mentors=mentors.join(User,Mentor.user_id==User.id).filter(db.or_(User.name.ilike('%'+q+'%'),Mentor.title.ilike('%'+q+'%'),Mentor.bio.ilike('%'+q+'%')))
-    return render_template('browse.html',mentors=mentors.order_by(Mentor.id).all(),lanes=LANES,lane=lane,q=q)
+    return render_template('browse.html',mentors=[m for m in mentors.order_by(Mentor.id).all() if m.publicly_visible],lanes=LANES,lane=lane,q=q)
 
 @bp.route('/mentor/<int:mid>')
 def mentor(mid):
     m=db.get_or_404(Mentor,mid)
-    if m.status!='approved' or m.is_demo or not account_enabled(m.user): abort(404)
+    if not m.publicly_visible: abort(404)
     return render_template('mentor.html',m=m)
 
 @bp.route('/register',methods=['GET','POST'])
@@ -69,17 +69,23 @@ def register():
     if current_user.is_authenticated: return redirect(url_for('main.dashboard'))
     if not settings().registration_open:
         return render_template('registration_closed.html'),403
+    from .registration_security import mail_ready,normalized_email,rate_allowed,verify_turnstile,notify_verification
+    if not mail_ready():return render_template('registration_unavailable.html'),503
     form=RegisterForm()
+    if request.method=='POST' and not rate_allowed('registration-ip',request.remote_addr or 'unknown',10,900):abort(429)
     if form.validate_on_submit():
-        u=User(name=form.name.data.strip(),email=form.email.data.strip().lower(),password_hash=generate_password_hash(form.password.data),role='student')
-        db.session.add(u)
-        try: db.session.commit()
-        except IntegrityError:
-            db.session.rollback(); form.email.errors.append('An account already uses this email. Sign in instead.')
+        if not verify_turnstile('register'):
+            form.email.errors.append('Complete the bot check and try again. If it expired, reload this page.')
         else:
-            sign_in(u)
-            flash('Your account is ready. Welcome to TTBG.','success')
-            return after_login()
+            email=normalized_email(form.email.data)
+            u=User(name=form.name.data.strip(),email=email,password_hash=generate_password_hash(form.password.data),role='student')
+            db.session.add(u)
+            try:db.session.commit()
+            except IntegrityError:
+                db.session.rollback();form.email.errors.append('An account already uses this email. Sign in to continue or verify it.')
+            else:
+                sign_in(u);notify_verification(u)
+                return redirect(url_for('verification.notice'))
     return render_template('auth.html',form=form,register=True)
 
 @bp.route('/login',methods=['GET','POST'])
@@ -132,7 +138,7 @@ def dashboard():
 @roles('student')
 def book(sid):
     s=db.get_or_404(Service,sid)
-    if not s.active or s.mentor.status!='approved' or s.mentor.is_demo or not account_enabled(s.mentor.user): abort(404)
+    if not s.active or not s.mentor.publicly_visible: abort(404)
     # Simulated reservations are available only to explicitly configured tests.
     if not (current_app.testing and current_app.config['TEST_RESERVATIONS_ENABLED']):
         if request.method=='POST': abort(403)
@@ -179,14 +185,14 @@ def booking_detail(bid):
 def cancel(bid):
     b=db.get_or_404(Booking,bid)
     if current_user.role not in ['admin','account_manager','onboarding'] and current_user.id not in (b.student_id,b.mentor.user_id): abort(403)
-    if b.status=='demo_reserved':
+    if b.status=='demo_reserved' and b.payment_status=='not_charged':
         b.status='cancelled'; b.slot_key=None; db.session.commit(); flash('Archived test reservation cancelled. No charge was made.','success')
     return redirect(url_for('main.booking_detail',bid=bid))
 
 @bp.route('/admin')
 @roles('admin','account_manager','onboarding')
 def admin():
-    mentors=Mentor.query
+    mentors=Mentor.query.filter(Mentor.user.has(User.role!='archive'))
     state=request.args.get('status','')
     if state:mentors=mentors.filter_by(status=state)
     else:mentors=mentors.filter(Mentor.status!='deleted')
@@ -200,6 +206,7 @@ def admin():
 @roles('admin','account_manager','onboarding')
 def review(mid):
     m=db.get_or_404(Mentor,mid); form=ReviewForm(obj=m)
+    if m.user.role=='archive':abort(404)
     if form.validate_on_submit():
         missing=[label for label,ok in readiness(m) if not ok]
         if m.status in ['deleted','suspended']:

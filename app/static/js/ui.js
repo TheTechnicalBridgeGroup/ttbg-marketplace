@@ -17,6 +17,9 @@
       setTimeout(() => { button.textContent = original; }, 3000);
     }
   }));
+  document.querySelectorAll('form[data-confirm]').forEach(form => form.addEventListener('submit', event => {
+    if (!window.confirm(form.dataset.confirm)) event.preventDefault();
+  }));
   const pathname = location.pathname;
   document.querySelectorAll('.support-nav a,.control-nav a,header nav > a').forEach(link => {
     const url = new URL(link.href);

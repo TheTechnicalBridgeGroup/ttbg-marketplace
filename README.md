@@ -1,12 +1,13 @@
-# TTBG Marketplace — v0.4.1
+# TTBG Marketplace — v0.5.0
 
-The TTBG Flask marketplace includes a staff-only Support Center, password-protected API-key reveal, a refreshed interface, square mentor profile photos, and native Acuity availability. Stripe Connect remains the planned 80/20 payment integration; this release does not charge customers or create appointments.
+The TTBG Flask marketplace now adds admin-only deletion of non-admin accounts, email verification, Cloudflare Turnstile protection, shared documentation, and an automated help guide to its staff-only Support Center, password-protected API-key reveal, a refreshed interface, square mentor profile photos, and native Acuity availability. Stripe Connect remains the planned 80/20 payment integration; this release does not charge customers or create appointments.
 
 ## Role hierarchy
 
 | Capability | Admin | Account Manager | Mentor | Mentee / Student |
 | --- | --- | --- | --- | --- |
 | Create staff/student accounts; manage roles and account access | Yes | No | No | No |
+| Permanently delete any non-admin account | Yes, with confirmation | No | No | No |
 | Create and manage mentor profiles and services | Yes | Yes | Own profile and prices | No |
 | Issue password resets and revoke sessions | All accounts | Students and mentors only | No | No |
 | Support account search, internal notes, activity, booking lookup, error triage | Yes | Yes | No | No |
@@ -39,9 +40,9 @@ Sensitive account/configuration actions require the acting Admin’s password an
 1. Open **Admin → Accounts → Create staff or student**. For mentors, choose **Create mentor** instead.
 2. Enter the person’s name, email, role, reason, and your own Admin password.
 3. Copy the one-time setup link shown after saving and privately give it to that person.
-4. The person chooses a password of at least 12 characters.
+4. The person verifies their email using the emailed link and chooses a password of at least 12 characters. The private setup link remains available but grants only restricted access until email verification is complete.
 
-For an existing account, choose **Manage → Reset password**. Links expire after one hour, work once, and replace earlier links. They are hashed in storage; passwords and plaintext tokens are not logged. No email or message is sent automatically. Existing mentor onboarding links still work and expire after seven days.
+For an existing account, choose **Manage → Reset password**. Links expire after one hour, work once, and replace earlier links. They are hashed in storage; passwords and plaintext tokens are not logged. Password-reset links for existing verified accounts still use private handoff. New web-created accounts receive a verification email when SMTP is configured; setup links do not bypass verification. Existing mentor onboarding links still work and expire after seven days.
 
 Disabled accounts and suspended/deleted mentor profiles cannot sign in or complete password setup. Re-enabling an account does not republish a suspended mentor profile.
 
@@ -96,13 +97,39 @@ The account timeline shows up to 50 recent events; notes and search results pagi
 
 **Support → Integrations** reports whether credentials are configured. Admins see masked values and a **Reveal key** button. Every reveal opens a dialog and requires the current admin password. The value is sent only after verification, never embedded in the original HTML. Account Managers see readiness only.
 
-The allowlist is `ACUITY_API_KEY`, `STRIPE_SECRET_KEY`, and `STRIPE_WEBHOOK_SECRET`. Values remain in hosting environment settings; no new secret database or key-editing UI is added. `SECRET_KEY`, database URLs/passwords, user password hashes, and arbitrary environment variables cannot be revealed through this endpoint. User passwords remain one-way hashes and are never recoverable or displayed.
+The allowlist is `ACUITY_API_KEY`, `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, and `TURNSTILE_SECRET_KEY`. Values remain in hosting environment settings; no new secret database or key-editing UI is added. `SECRET_KEY`, database URLs/passwords, user password hashes, and arbitrary environment variables cannot be revealed through this endpoint. User passwords remain one-way hashes and are never recoverable or displayed.
 
 Reveal responses are non-cacheable. The value is removed from the dialog after 30 seconds, on close, tab hiding, or window blur. No key is saved to browser storage or written to audit records. A successful reveal records actor, credential name, and timestamp. Each reveal requires fresh password confirmation; five failed support-password confirmations within 15 minutes temporarily block additional confirmations for that staff account, across sessions. CSRF checks apply. Authorized admins can still inspect or copy a revealed response; automatic hiding is a display safeguard, not revocation of access to a secret already revealed.
 
 ## Interface updates
 
 The existing navigation and booking flow remain. Navy/gold styling now includes softer cards, clear active-page navigation, responsive layouts, dismissible notices, copy buttons for account/reset/error references, **Ctrl/Cmd+K quick navigation**, and an optional device-based color theme. Existing light/dark preferences continue working. Mentor profile photos now use a square frame; small navigation avatars remain round. Dialogs support keyboard navigation and Escape, and animation respects reduced-motion settings.
+
+## Documentation and help guide
+
+**Documentation** appears in navigation for Admins, Account Managers, and Mentors only. Admins and Account Managers can add, edit, and delete pages; Mentors can read/search pages and view images. Every page is shared with all three roles—do not put staff-only case notes or secrets here.
+
+The Confluence-inspired layout has named spaces, a nested page sidebar, parent/child pages, search, last-editor/date labels, and version numbers. The text editor supports `#` headings, `##` subheadings, `###` smaller headings, `-` lists, and paragraphs. HTML is escaped. This is a lightweight shared knowledge base, not a full Confluence integration or collaborative rich-text editor. Version checks reject stale edits; version numbers do not provide revision restoration. Page deletion requires a confirmation page, removes its images, and keeps child pages. Three starter guides are created once during upgrade and can be edited or deleted.
+
+Upload one image per save, with an accessibility description. Images appear after the text. Supported input is still JPEG/PNG/WebP, at most 5 MB / 16 megapixels. Files are decoded and re-encoded as WebP, preserving proportions, at most 1600 × 1600 pixels and 500 KB, with a maximum of 10 images per page. Originals and metadata are discarded. Images are stored in the persistent database and served only to documentation readers. Backups must cover these tables. There is no remote image embedding or public attachment URL.
+
+**Admin → Settings → Help guide & team contact** controls whether the automated guide appears and its public team phone number. Enter international format, such as `+12125550123`, or leave blank for email/tickets only. Changes are applied on the next page load. Only Admins can change these settings. The existing support email is also used.
+
+The help widget answers common navigation questions with built-in guidance and offers your help-desk ticket link, email, and a `tel:` link. It opens the device's phone app; it does not start a call automatically, bridge a call, offer live-agent presence, or transmit the chat to the team. There is no AI provider, subscription, or per-message API call. Conversation text is held only in the page and disappears on reload. The widget is available to visitors and signed-in users; internal Support tools remain restricted to Admins and Account Managers.
+
+## Account deletion, verification, and bot protection
+
+**Support → Account lookup → click an account → Delete account** lets an Admin delete any non-admin account's actual `market_user` row, password hash, verification/reset records, mentor profile, service mappings, photos, own support notes, and related unpaid test reservations. Confirmation requires the exact account email, your current admin password, and a reason. It is unavailable to Account Managers, mentors, and students. All Admin accounts are protected from deletion, including your own and every other Admin, even when disabled. There is no bulk-disable or bulk-delete startup command.
+
+Having booking history does not block deletion. Actual booking/payment snapshots are retained with their recorded amounts, status, and dates, and reassigned to non-login archive references. Personal session goals are cleared. Other participants keep access to their booking records. Shared audit/support attribution remains under a disabled, non-login “Deleted account” principal; the original login row is gone. The archive principal is hidden from account lists and cannot sign in, be enabled through the editor, or be deleted through this action. This also prevents SQLite from reusing removed account IDs. Free text in other accounts' notes/audit records and backups is not automatically erased. External Acuity, Stripe, help desk, and email-provider records are unchanged.
+
+New web-created accounts must prove email ownership before entering their dashboard, managing a profile, using staff tools, or booking. Email changes clear prior verification and invalidate outstanding verification links. A new mentor must verify before publication. Verification links expire after one hour, are hashed in the database, and are single-use. The owner explicitly chooses a password on confirmation, preventing a person who preregistered someone else's email from retaining a known password. Confirmation revokes earlier sessions and requires a new sign-in. Visiting the link alone does not consume it.
+
+Existing accounts are grandfathered once during the additive upgrade, without falsely claiming their email was verified. Disabled accounts remain disabled; the upgrade does not disable, enable, or reset current accounts. The hosting CLI `create-admin` remains an explicitly trusted bootstrap/recovery path. Web-created Admins and both web/CLI-created Account Managers require verification.
+
+Read **SECURITY_SETUP.md before deployment**. SMTP configuration and a trusted `PUBLIC_BASE_URL` are required for new public registration. Missing mail setup closes public registration with a clear message while existing users retain access. SMTP failure leaves a new account pending and offers resend; no verification link is exposed in the browser or logs.
+
+Cloudflare Turnstile protects registration and verification-email resend when configured. Its tokens are checked server-side against the expected action and an explicit hostname allowlist. Invalid, expired, replayed, or failed checks block the submission. The app also rate-limits registration, verification attempts, and verification emails. Turnstile requires your site's public/secret keys and is not automatically active without configuration; it reduces automated abuse but does not guarantee every account belongs to a human.
 
 ## Deploy or upgrade
 
@@ -112,7 +139,7 @@ Read `DEPLOYMENT.md`. Back up the database, replace the **marketplace** reposito
 flask --app run init-db
 ```
 
-This creates new tables, migrates the legacy staff role once, and updates future service allocation once on the original v0.3 migration. The v0.4 migration adds support tables and selects Acuity only if no provider was previously selected; it preserves existing booking mode and fee settings. It does not drop existing tables or rewrite passwords or booking snapshots. Both the Render configuration and Procfile run this before Gunicorn. Run migrations once per release when using multiple service instances.
+This creates new tables, migrates the legacy staff role once, and updates future service allocation once on the original v0.3 migration. The v0.4 migration adds support tables and selects Acuity only if no provider was previously selected; it preserves existing booking mode and fee settings. The v0.5 migration adds email-identity/rate-counter, help-settings, documentation-page, and documentation-image tables and grants existing accounts a one-time verification exemption. It does not drop existing tables or rewrite passwords or booking snapshots. Both the Render configuration and Procfile run this before Gunicorn. Run migrations once per release when using multiple service instances.
 
 ## Local development
 

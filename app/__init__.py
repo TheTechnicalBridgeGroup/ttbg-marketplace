@@ -22,12 +22,19 @@ def create_app(config=None):
         TEST_RESERVATIONS_ENABLED=False)
     for key in ('ACUITY_USER_ID','ACUITY_API_KEY','STRIPE_SECRET_KEY','STRIPE_WEBHOOK_SECRET'):
         app.config[key]=os.getenv(key,'')
+    for key in ('SMTP_HOST','SMTP_USERNAME','SMTP_PASSWORD','SMTP_FROM','TURNSTILE_SITE_KEY','TURNSTILE_SECRET_KEY','TURNSTILE_HOSTNAMES'):
+        app.config[key]=os.getenv(key,'')
+    app.config['SMTP_SECURITY']=os.getenv('SMTP_SECURITY','starttls')
+    app.config['SMTP_PORT']=int(os.getenv('SMTP_PORT','465' if app.config['SMTP_SECURITY']=='ssl' else '587'))
+    app.config['TURNSTILE_ENABLED']=os.getenv('TURNSTILE_ENABLED','false').lower()=='true'
     if config: app.config.update(config)
     if not app.config['SECRET_KEY'] or len(app.config['SECRET_KEY'])<32:
         raise RuntimeError('Set SECRET_KEY to a random string of at least 32 characters in .env.')
     if os.getenv('RENDER'):
         from werkzeug.middleware.proxy_fix import ProxyFix
-        app.wsgi_app=ProxyFix(app.wsgi_app,x_proto=1)
+        hops=int(os.getenv('TRUSTED_PROXY_HOPS','1'))
+        if not 0<=hops<=5:raise RuntimeError('TRUSTED_PROXY_HOPS must be between 0 and 5.')
+        app.wsgi_app=ProxyFix(app.wsgi_app,x_proto=1,x_for=hops)
     db.init_app(app)
     CSRFProtect(app)
     login = LoginManager(app)
@@ -43,7 +50,12 @@ def create_app(config=None):
                 logout_user();session.clear()
                 flash('Your session has ended. Sign in again or contact your administrator.','error')
                 return redirect(url_for('main.login'))
-        if request.endpoint not in ('static','main.health','main.login','main.logout','control.password_reset'):
+        if current_user.is_authenticated:
+            from .registration_security import email_allowed
+            allowed=('static','main.logout','main.health','verification.notice','verification.confirm','control.password_reset','team.activate')
+            if not email_allowed(current_user) and request.endpoint not in allowed:
+                return redirect(url_for('verification.notice'))
+        if request.endpoint not in ('static' ,'main.health','main.login','main.logout','control.password_reset','verification.notice','verification.confirm'):
             cfg=settings()
             if cfg.maintenance_mode and not (current_user.is_authenticated and current_user.role=='admin'):
                 return render_template('maintenance.html'),503
@@ -60,13 +72,21 @@ def create_app(config=None):
     from .acuity import bp as acuity_bp
     app.register_blueprint(acuity_bp)
     got_request_exception.connect(capture_error,app,weak=False)
+    from .registration_security import bp as verification_bp
+    app.register_blueprint(verification_bp)
+    from .deletion import bp as deletion_bp
+    app.register_blueprint(deletion_bp)
+    from .knowledge import bp as knowledge_bp
+    app.register_blueprint(knowledge_bp)
     from .commands import register_commands
     register_commands(app)
     from .forms import EmptyForm
     @app.context_processor
     def common():
         from .booking_config import scheduler_link
-        return {'action_form':EmptyForm(formdata=None), 'platform_settings':settings(), 'role_labels':ROLE_LABELS, 'scheduler_link':scheduler_link, 'test_reservations_enabled':app.testing and app.config['TEST_RESERVATIONS_ENABLED']}
+        from .registration_security import turnstile_enabled, email_label, mail_ready, turnstile_ready
+        from .security import help_settings
+        return {'help_settings':help_settings(),'turnstile_enabled':turnstile_enabled(),'turnstile_site_key':app.config.get('TURNSTILE_SITE_KEY',''),'email_label':email_label,'mail_ready':mail_ready(),'turnstile_ready':turnstile_ready(),'action_form':EmptyForm(formdata=None), 'platform_settings':settings(), 'role_labels':ROLE_LABELS, 'scheduler_link':scheduler_link, 'test_reservations_enabled':app.testing and app.config['TEST_RESERVATIONS_ENABLED']}
     @app.template_filter('money')
     def money(value): return f'${value/100:,.2f}'
     @app.after_request
@@ -75,6 +95,9 @@ def create_app(config=None):
         response.headers['X-Frame-Options']='DENY'
         response.headers.setdefault('Referrer-Policy','strict-origin')
         response.headers['Content-Security-Policy']="default-src 'self'; style-src 'self'; img-src 'self' data:; script-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'self'"
+        from .registration_security import turnstile_enabled
+        if turnstile_enabled() and request.endpoint in ('main.register','verification.notice'):
+            response.headers['Content-Security-Policy']="default-src 'self'; style-src 'self'; img-src 'self' data:; script-src 'self' https://challenges.cloudflare.com; frame-src https://challenges.cloudflare.com; connect-src 'self' https://challenges.cloudflare.com; form-action 'self'; frame-ancestors 'none'; base-uri 'self'"
         if response.mimetype=='text/html': response.headers['Cache-Control']='no-store'
         return response
     def error_page(error):

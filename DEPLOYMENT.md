@@ -1,6 +1,8 @@
-# Deploy TTBG Marketplace v0.4.1
+# Deploy TTBG Marketplace v0.5.0
 
 Update the existing **ttbg-marketplace** repository and Render service. Do not upload the mentor portal or help desk code into this repository.
+
+Read SECURITY_SETUP.md for SMTP, email verification, and Turnstile configuration. Existing accounts remain accessible, but public registration is unavailable until mail configuration is complete.
 
 ## Before deployment
 
@@ -45,13 +47,13 @@ Use the connection string and TLS options required by your database provider:
 - PostgreSQL: `postgresql+psycopg://USER:PASSWORD@HOST:PORT/DATABASE` plus provider TLS parameters.
 - MySQL: `mysql+pymysql://USER:PASSWORD@HOST:PORT/DATABASE` plus provider CA/TLS parameters.
 
-Do not use SQLite on Render’s ephemeral disk. Photos are stored in the persistent database and are covered by its backup policy. No new dependency is required for v0.4. The v0.3 dependency Pillow is used for image decoding and re-encoding; the existing Flask/database stack is retained.
+Do not use SQLite on Render’s ephemeral disk. Photos are stored in the persistent database and are covered by its backup policy. No new runtime dependency is required for v0.5. The v0.3 dependency Pillow is used for image decoding and re-encoding; the existing Flask/database stack is retained.
 
-Render’s forwarded protocol header is trusted only when its `RENDER` environment is present. Same-origin HTTPS form referrers and CSRF checks remain enabled. No production credentials are included in the ZIP.
+Render’s forwarded protocol header is trusted only when its `RENDER` environment is present. The app also trusts the configured number of rightmost forwarded-IP hops (TRUSTED_PROXY_HOPS, default 1 on Render) for rate limiting. Verify the actual proxy chain before changing this value; never select an arbitrary leftmost client-supplied IP. Same-origin HTTPS form referrers and CSRF checks remain enabled. No production credentials are included in the ZIP.
 
 ## What the first upgrade changes
 
-`init-db` creates the added account-access, password-link, platform-settings, platform-audit, photo-submission, mentor-photo, service-scheduling, mentor-integration, and schema-revision tables. Existing tables retain their columns. v0.4 also creates `market_support_note`, `market_support_incident`, `market_sensitive_attempt`, and `market_availability_request`; no existing production table is rebuilt.
+`init-db` creates the added account-access, password-link, platform-settings, platform-audit, photo-submission, mentor-photo, service-scheduling, mentor-integration, and schema-revision tables. Existing tables retain their columns. v0.5 adds `market_email_identity`, `market_security_rate`, `market_help_settings`, `market_knowledge_page`, and `market_knowledge_image` and marks only accounts already present at that migration as exempt from verification; it does not disable them. v0.4 also creates `market_support_note`, `market_support_incident`, `market_sensitive_attempt`, and `market_availability_request`; no existing production table is rebuilt.
 
 - Existing Admins stay Admins.
 - Legacy `onboarding` users become Account Managers.
@@ -90,3 +92,20 @@ Keep the existing local `instance/marketplace.db` and `.env` if you want to reta
 ## Support record retention
 
 Support notes, audit records, and incidents persist in the database and its backups. Short-lived verification and availability throttling records are pruned for each account when it uses the corresponding workflow again. Set a retention process before traffic grows; the app does not yet run scheduled global archival. Configure external uptime/error monitoring separately to cover failures before Flask starts or while its database is offline.
+
+## v0.5 deployment checks
+
+1. Back up the database and preserve existing SECRET_KEY/DATABASE_URL. Run `flask --app run init-db` once before starting workers.
+2. Confirm existing Admin, Account Manager, mentor and student access still works. Confirm disabled users remain disabled.
+3. Configure SMTP and PUBLIC_BASE_URL in Render, then register a mailbox you control. Verify receipt, expiry/resend, and successful confirmation/sign-in. SMTP acceptance alone does not prove inbox delivery.
+4. Add Turnstile site/secret keys and exact allowed hostnames; test a valid challenge and a rejected submission on the deployed domain.
+5. Use a disposable account to exercise permanent deletion. Confirm the old login fails and shared records remain. This cannot be undone through the app.
+6. Run `flask --app run prune-security-records` periodically (for example daily through your hosting scheduler) to remove expired counters and token hashes. This command does not disable or delete accounts.
+
+Old releases do not enforce v0.5 verification and do not understand archive principals. Avoid rolling back to older code without a deliberate recovery plan.
+
+## Documentation and contact setup
+
+After `init-db`, open Documentation as an Admin, Account Manager, and Mentor. Check the three starter guides and edit them for your team. Confirm students cannot access pages or direct image URLs. Backups now include compressed documentation images. If editors see a conflict, have them copy their text, reload the latest page, and reapply it.
+
+Under Admin → Settings, set the public team contact number in international format or leave it blank for ticket/email help. The guide uses built-in responses and needs no AI service. Test the phone link on a phone and the ticket link in your help desk. This is a handoff, not embedded live support.

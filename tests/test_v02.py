@@ -1,6 +1,6 @@
 import re
 from decimal import Decimal
-from test_workflows import app,login,payload
+from test_workflows import app,login,payload,verify_mail
 from app.models import db,User,Mentor,Service,Booking,MentorDetails,MentorInvitation,MentorAudit
 
 DATA={'name':'New Mentor','email':'newmentor@example.com','lane':'Technology','title':'Software mentor','bio':'I help students grow their software skills through practical projects.','experience':'Ten years of software support and automation.','years_experience':10,'languages':'English','timezone':'America/New_York','specialties':'Python, APIs','education':'IT degree','session_approach':'Hands-on practice','phone':'555-0101','internal_notes':'PRIVATE_TEAM_NOTE','application_reference':'APP-001','owner_id':1}
@@ -21,6 +21,9 @@ def test_admin_crud_readiness_private_fields_and_audit(app):
     data=dict(DATA);data.update({k:'y' for k in CHECKS})
     assert c.post('/admin/mentors/2/edit',data=data).status_code==302
     assert c.post('/admin/mentors/2/services/new',data={'name':'Python mentoring','price':'75.00','duration':60,'fee_percent':'15'}).status_code==302
+    assert c.post('/admin/mentors/2',data={'status':'approved'}).status_code==200
+    owner=app.test_client();activation=invite(c);owner.post(activation,data={'password':'mentor-long-password','confirm':'mentor-long-password'})
+    verify_mail(owner,app,DATA['email'],'mentor-long-password')
     assert c.post('/admin/mentors/2',data={'status':'approved'}).status_code==302
     public=c.get('/mentor/2').text
     assert 'Hands-on practice' in public and 'Python, APIs' in public
@@ -37,6 +40,7 @@ def test_activation_price_ownership_and_old_booking(app):
     anon=app.test_client();assert anon.get(first).status_code==400
     assert anon.post(second,data={'password':'mentor-long-password','confirm':'mentor-long-password'}).status_code==302
     assert anon.get(second).status_code==400
+    verify_mail(anon,app,DATA['email'],'mentor-long-password')
     assert anon.get('/dashboard').status_code==200
     with app.app_context():
         db.session.add(Service(mentor_id=2,name='Support',price_cents=7500,duration=60,fee_bps=1500));db.session.commit()

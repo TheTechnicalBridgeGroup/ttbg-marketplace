@@ -22,6 +22,8 @@ class SettingsForm(ConfirmAdmin):
     site_title=StringField('Site title',validators=[DataRequired(),Length(max=80)])
     description=StringField('Search description',validators=[DataRequired(),Length(max=240)])
     support_email=StringField('Support email',validators=[DataRequired(),Email(),Length(max=254)])
+    help_enabled=BooleanField('Show the automated help guide')
+    help_phone=StringField('Team contact number (international format, e.g. +12125550123)',validators=[Optional(),Regexp(r'^\+[1-9][0-9]{6,14}$',message='Use + followed by 7–15 digits, without spaces or punctuation.'),Length(max=20)])
     registration_open=BooleanField('Allow new student registrations')
     maintenance_mode=BooleanField('Maintenance mode (only admins can access the platform)')
     fee_percent=DecimalField('TTBG share of session price (%)',places=2,validators=[finite_number,NumberRange(min=Decimal('0'),max=Decimal('100'))])

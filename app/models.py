@@ -30,7 +30,8 @@ class Mentor(db.Model):
     is_demo = db.Column(db.Boolean, default=False, nullable=False)
     @property
     def publicly_visible(self):
-        return self.status=='approved' and not self.is_demo and (not self.user.access or self.user.access.enabled)
+        from .registration_security import email_allowed
+        return email_allowed(self.user) and self.status=='approved' and not self.is_demo and (not self.user.access or self.user.access.enabled)
 
     services = db.relationship('Service', backref='mentor', lazy=True)
     created_at = db.Column(db.DateTime, default=now, nullable=False)
@@ -232,3 +233,61 @@ class AvailabilityRequest(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     user_id = db.Column(db.Integer, db.ForeignKey('market_user.id'), nullable=False, index=True)
     created_at = db.Column(db.DateTime, default=now, nullable=False, index=True)
+
+class EmailIdentity(db.Model):
+    __tablename__ = 'market_email_identity'
+    user_id = db.Column(db.Integer, db.ForeignKey('market_user.id'), primary_key=True)
+    user = db.relationship('User', backref=db.backref('email_identity', uselist=False))
+    email = db.Column(db.String(254), nullable=False)
+    verified_at = db.Column(db.DateTime)
+    legacy_exempt = db.Column(db.Boolean, nullable=False, default=False)
+    token_hash = db.Column(db.String(64), unique=True)
+    expires_at = db.Column(db.DateTime)
+    last_sent_at = db.Column(db.DateTime)
+
+class SecurityRate(db.Model):
+    __tablename__ = 'market_security_rate'
+    key = db.Column(db.String(64), primary_key=True)
+    count = db.Column(db.Integer, nullable=False, default=0)
+    expires_at = db.Column(db.DateTime, nullable=False, index=True)
+
+# Every ORM-created account starts pending, including staff-created mentors.
+from sqlalchemy import event
+from sqlalchemy.orm import Session
+@event.listens_for(Session, 'before_flush')
+def require_new_identity(session, flush_context, instances):
+    from sqlalchemy import inspect
+    for item in list(session.dirty):
+        if isinstance(item,User) and inspect(item).attrs.email.history.has_changes():
+            identity=item.email_identity or EmailIdentity(user=item,email=item.email)
+            identity.email=item.email;identity.verified_at=None;identity.legacy_exempt=False
+            identity.token_hash=None;identity.expires_at=None;identity.last_sent_at=None
+    for item in list(session.new):
+        if isinstance(item,User) and item.email_identity is None:
+            item.email_identity=EmailIdentity(email=item.email,legacy_exempt=False)
+
+class HelpSettings(db.Model):
+    __tablename__ = 'market_help_settings'
+    id = db.Column(db.Integer, primary_key=True)
+    enabled = db.Column(db.Boolean, nullable=False, default=True)
+    phone = db.Column(db.String(20), nullable=False, default='')
+
+class KnowledgePage(db.Model):
+    __tablename__ = 'market_knowledge_page'
+    id = db.Column(db.Integer, primary_key=True)
+    space = db.Column(db.String(80), nullable=False)
+    title = db.Column(db.String(160), nullable=False)
+    body = db.Column(db.Text, nullable=False)
+    parent_id = db.Column(db.Integer, db.ForeignKey('market_knowledge_page.id'))
+    updated_by = db.Column(db.Integer, db.ForeignKey('market_user.id'))
+    editor = db.relationship('User')
+    version = db.Column(db.Integer, nullable=False, default=1)
+    created_at = db.Column(db.DateTime, default=now, nullable=False)
+    updated_at = db.Column(db.DateTime, default=now, onupdate=now, nullable=False)
+
+class KnowledgeImage(db.Model):
+    __tablename__ = 'market_knowledge_image'
+    id = db.Column(db.Integer, primary_key=True)
+    page_id = db.Column(db.Integer, db.ForeignKey('market_knowledge_page.id'), nullable=False, index=True)
+    caption = db.Column(db.String(200), nullable=False)
+    image = db.Column(db.LargeBinary().with_variant(MEDIUMBLOB(), 'mysql'), nullable=False)
