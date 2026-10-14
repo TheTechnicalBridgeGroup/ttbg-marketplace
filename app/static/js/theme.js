@@ -1,28 +1,22 @@
-/* Apply the saved theme before styles paint. Light is always the initial default. */
+/* Apply saved or device theme before styles paint. Light stays the default. */
 (function () {
   'use strict';
-  const key = 'ttbg-theme';
-  const normalize = value => value === 'dark' ? 'dark' : 'light';
-  let initial = 'light';
-  try { initial = normalize(window.localStorage.getItem(key)); } catch (_) {}
-  function apply(value) {
-    const theme = normalize(value);
-    document.documentElement.dataset.theme = theme;
+  const key = 'ttbg-theme', media = window.matchMedia('(prefers-color-scheme: dark)');
+  const normalize = v => ['light', 'dark', 'system'].includes(v) ? v : 'light';
+  let preference = 'light';
+  try { preference = normalize(localStorage.getItem(key)); } catch (_) {}
+  function apply() {
+    document.documentElement.dataset.theme = preference === 'system' ? (media.matches ? 'dark' : 'light') : preference;
     const control = document.getElementById('theme-choice');
-    if (control) control.value = theme;
+    if (control) control.value = preference;
   }
-  apply(initial);
-  document.addEventListener('DOMContentLoaded', function () {
+  apply();
+  document.addEventListener('DOMContentLoaded', () => {
     const control = document.getElementById('theme-choice');
     if (!control) return;
-    control.hidden = false;
-    apply(document.documentElement.dataset.theme);
-    control.addEventListener('change', function () {
-      apply(control.value);
-      try { window.localStorage.setItem(key, control.value); } catch (_) {}
-    });
+    control.hidden = false; apply();
+    control.addEventListener('change', () => { preference = normalize(control.value); apply(); try { localStorage.setItem(key, preference); } catch (_) {} });
   });
-  window.addEventListener('storage', function (event) {
-    if (event.key === key || event.key === null) apply(event.newValue);
-  });
+  media.addEventListener('change', apply);
+  window.addEventListener('storage', e => { if (e.key === key || e.key === null) { preference = normalize(e.newValue); apply(); } });
 }());

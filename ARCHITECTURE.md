@@ -1,62 +1,65 @@
-# Marketplace V1 model and integration plan
+# Marketplace v0.4 architecture
 
-## Implemented relationships
+The Flask application retains the existing user, mentor, service, booking, onboarding-detail, invitation, and mentor-audit models. New functions are split into `security.py`, `control.py`, `photos.py`, `booking_config.py`, and `upgrade.py`, `support.py`, and `acuity.py`.
 
-`User → Mentor → Service` represents the approved supply side. `User (student) → Booking → Mentor + Service` retains historical test session data. Each mentor currently belongs to one lane and can have many services. All account and business state lives server-side.
-
-| Object | Main fields | Purpose |
-| --- | --- | --- |
-| User | name, unique email, password hash, role | Sign-in and authorization |
-| Mentor | user, lane, title, bio, experience, review state/note, Acuity calendar ID | Onboarding and public profile |
-| Service | mentor, name, price cents, duration, fee basis points, Acuity type ID, active | Mentor-specific offerings |
-| Booking | student, mentor, service, UTC start, price/fee/earnings snapshots, state, unique slot/request keys | Historical reservation records |
-| LoginAttempt | normalized email, timestamp | Shared database-backed sign-in throttling |
-
-The public path is: choose lane → browse approved real mentors → inspect services and prices → contact TTBG to arrange a session. Registration, sign-in, mentor account activation, profile management, and service pricing remain available.
-
-Only approved profiles without the fictional-profile flag appear publicly, including direct profile URLs. Staff retain access to existing fictional profiles for review and cleanup. Published mentor counts exclude them.
-
-Booking creation is blocked during normal operation. An explicit application-level test configuration plus Flask testing mode is required to run the existing reservation simulation in automated tests; hosting environment variables cannot enable it. Existing records are retained as archived test reservations and are never included in live financial totals.
-
-Amounts are stored as integer USD cents and commission as basis points (1500 = 15%). Stored test amounts do not represent collected revenue, earnings, or payouts. Legacy database column and status identifiers remain unchanged to avoid a destructive schema migration.
-
-## Connect live scheduling and payments next
-
-The current production scope is the directory, accounts, onboarding, and service pricing. In-app scheduling and payments require a separate integration, including:
-
-1. Server-side Acuity client with credentials stored in environment variables; fetch availability for the mentor's calendar ID and the selected service's appointment type ID. Revalidate at booking time. Do not expose Acuity keys to the browser.
-2. Transaction table with unique provider checkout/payment IDs, amount/currency, status, booking reference, and a separate immutable event log. Signed payment webhooks must determine payment success, not a redirect from a checkout page.
-3. Pending booking before checkout and idempotent payment-event processing. Acuity scheduling can fail after payment succeeds: record a recoverable state, retry safely, and provide a refund/reconciliation path. Do not report a confirmed session until the appointment exists.
-4. Persist Acuity appointment IDs. Verify supported webhook authenticity and reconcile cancellations/reschedules across systems. Do not use Acuity's admin booking override to bypass availability checks.
-5. Real earnings ledger, refund adjustments, and payout-provider onboarding. Gross mentor allocation is not the same as a completed payout; processing fees and business commission policy need explicit treatment.
-6. Email verification, password reset, operational email, abuse controls beyond per-email login throttling, migrations, backups, and monitoring before a public launch.
-
-Official scheduling references:
-- https://developers.acuityscheduling.com/page/how-to-schedule-an-appointment-with-the-acuity-scheduling-api
-- https://developers.acuityscheduling.com/reference/post-appointments
-
-## Existing TTBG apps
-
-The two supplied projects were inspected for branding and stack compatibility. Their source, credentials, routes, and databases were not changed or merged into this app. The exact logo and favicon were copied as assets. Application import and help desk onboarding tickets remain manual; add an authenticated integration later rather than coupling tables across applications.
-
-## v0.2 changes (supersede v0.1 self-application flow)
-
-Public application CTAs and new-applicant visits to `/onboarding` go to the existing mentor application portal. Only mentors with an existing profile can use `/onboarding` to propose profile edits. The team creates marketplace profiles from approved applications.
-
-Three new tables are additive, so upgrading v0.1 requires `init-db` but no column rewriting:
+## Additional tables
 
 | Table | Purpose |
 | --- | --- |
-| market_mentor_details | Public qualifications and specialties; private contact/application/owner/notes; five readiness attestations and account activation time |
-| market_mentor_invitation | One current hashed token per mentor, expiry and atomic one-time consumption |
-| market_mentor_audit | Actor, action, summary, UTC timestamp for profile, state, service, activation, and price changes |
+| `market_account_access` | Enabled state, session revision, and last sign-in time |
+| `market_password_link` | One hashed, expiring password/setup token per account |
+| `market_platform_settings` | Singleton application metadata, registration/maintenance controls, provider choice, booking mode, company share |
+| `market_platform_audit` | Actor, action, target, reason/detail, and timestamp |
+| `market_photo_submission` | Moderation metadata and normalized JPEG bytes for current images |
+| `market_mentor_photo` | Current approved and pending submission pointers |
+| `market_service_scheduling` | Provider, event reference, hosted URL per service |
+| `market_mentor_integration` | Scheduling-user and future Stripe account references |
+| `market_schema_revision` | Idempotent upgrade markers |
+| `market_support_note` | Append-only staff notes attached to an account |
+| `market_support_incident` | Safe exception/provider metadata and resolution records |
+| `market_sensitive_attempt` | Staff password-confirmation failure throttling across sessions |
+| `market_availability_request` | Per-account availability/readiness request throttling |
 
-States add draft, suspended, and deleted. Delete is soft deletion: hidden by default, blocks sign-in, excludes public/booking access, retains history. Restore goes to draft. Suspension/delete revoke pending activation links and block sessions at the next request. Existing reservations are preserved, with manual cancellation available in the team workspace.
+The migration is additive and runs before serving requests. It converts the legacy staff role and initializes future commissions once. Production passwords and booking snapshots are unchanged.
 
-Publication requires the five recorded attestations, minimum biography/experience text, and at least one active service. Pre-v0.2 approved profiles stay published until edited or reviewed; newly publishing them requires completing the checklist. Mentor changes to credential text invalidate the credential-review check.
+## Authorization and account lifecycle
 
-The onboarding role shares profile/service/booking workspace access with administrators. It cannot create other staff through a web route. Owner assignment is not row-level authorization. Private profile fields and audit information are never rendered on public mentor pages.
+`admin` is the highest application role. `account_manager` is the delegated mentor-management role; the former `onboarding` value is accepted for compatibility and migrated. All protected routes perform server-side role or ownership checks. User-submitted role and commission parameters cannot override those checks.
 
-Mentors can change only their own service prices; server-side authorization rejects other users' service IDs. Commission and service setup remain staff-managed. Prices use Decimal input converted to integer cents. Existing booking snapshots do not change, and a server-side quote check detects prices changed between opening and submitting a reservation.
+Every request checks disabled-account state and the session revision. Disabling, changing identity/role, or resetting/revoking access invalidates older sessions. Password links use random tokens stored as SHA-256 hashes, expire after one hour, and use a conditional database update to prevent reuse. They are rendered once for private handoff; the app does not send mail. Mentor invitation behavior remains available, with account-disable checks and revocation on access changes.
 
-Setup tokens are random, stored only as SHA-256 hashes, expire after seven days, and are consumed transactionally. They are rendered once to staff for manual handoff; they are not stored in session cookies. New links replace old links. Existing linked student accounts retain their passwords. Activation URLs are sensitive: share only with the intended mentor. No outbound email action is performed.
+Self-demotion/disable is rejected. Identity mutation serializes through the settings row on databases supporting row locks and checks that an active Admin remains. Role changes are constrained to keep mentor/profile relationships consistent.
+
+## Photo lifecycle
+
+Upload → pending review → approved or rejected. A replacement never becomes public before review. Submission/review uses the mentor row as the lock on databases supporting row locks and verifies that the pending submission still matches the review request. Pending-image access is owner/staff only; public-image access additionally requires a published, enabled, non-fictional mentor.
+
+Only JPEG/PNG/WebP still images are accepted. File size, dimensions, decoding, and normalized output size are checked. Original metadata and filenames are discarded. At most an approved image and a pending image retain bytes; historical decisions remain. SQLAlchemy uses binary storage with a MySQL MEDIUMBLOB variant. No local upload directory is required.
+
+## Reporting and resources
+
+The Admin database explorer enumerates application metadata tables, paginates rows, and excludes sensitive hash/blob columns at the SQL selection layer. CSV exports escape spreadsheet formula prefixes. It offers no arbitrary SQL execution. Audit writes occur with the business transaction; histories are retained.
+
+Resources report application/runtime/database/disk state and link to hosting consoles. Host infrastructure permissions, secret rotation, server lifecycle, backups, and billing remain outside the Flask app; no cloud-provider management API credentials are present. An explicit environment allowlist supplies Acuity and future Stripe credentials; only Admins can reveal them after fresh password verification.
+
+## Booking and allocation
+
+Scheduling references and commission configuration are independent of the public profile model. Only validated HTTPS URLs for the selected provider can appear as hosted booking links. There are no server-side fetches to user-entered URLs. Contacts remain the default booking experience.
+
+Allocation uses integer cents, half-up rounding, and a 2000-basis-point company default. Current service rates are updated when an Admin changes the platform share; previous booking snapshots remain untouched. Test reservations remain explicitly gated by testing mode and cannot be enabled through hosting environment variables.
+
+See `SCHEDULING_OPTIONS.md` for the chosen Acuity/Stripe Connect architecture and remaining appointment/payment work. Saved external account references are not proof of authorization or payout readiness.
+
+## Support security and error capture
+
+Support routes use exact `admin`/`account_manager` checks in addition to the existing enabled-account and session-revision checks. Manager recovery targets are limited to `student`/`mentor`. Notes use escaped Jinja output and are absent from public and owner dashboards. Sensitive recovery and API reveals require current-password confirmation and CSRF. Failed confirmations share a per-staff-account 5-failure/15-minute limit persisted in the database; no password value is retained.
+
+API credentials are retrieved by fixed identifier from an allowlist of three environment-backed settings. No arbitrary name, file, SQL query, or environment enumeration is accepted. Secret JSON uses no-store headers; masked markup contains no key suffix or full value. Browser code clears password fields after submission and clears displayed keys on close, timeout, page hiding or blur. Abort handling prevents a late response from redisplaying a key after the dialog is closed. Confirmation is per request, with no reusable unlock flag.
+
+Flask's `got_request_exception` signal captures safe metadata and adds a random reference to the 500 response. Handled Acuity failures create equivalent incidents. A static fallback 500 page does not require database context. Support records never include raw URLs, posted form bodies, request headers, provider response bodies, or raw exceptions. Hosting logs remain the admin's deeper technical source. Audit notes entered by staff are text, so staff must avoid entering secrets manually.
+
+## Acuity read-only adapter
+
+The server uses HTTPS Basic authentication at fixed Acuity endpoints for `/me`, `/availability/dates`, and `/availability/times`. It never sends credentials to the browser for normal availability requests. Redirects are rejected, network calls have a 10-second timeout, and responses are limited to 1 MiB. The authenticated request rate is limited to 20 page/check requests per minute per account; a calendar page makes at most two provider calls. This is a basic application throttle, not a distributed edge rate limiter.
+
+Every availability page rechecks service activity, mentor publication/account access, and the platform provider/mode. Staff can inspect a publicly eligible mentor/service before activating native availability for students. Dates are validated against the selected month, a six-month horizon, and the selected IANA timezone. Returned times must have a UTC offset and fall on the requested date; past/duplicate slots are discarded. No synthetic fallback slots, appointment writes, payment transactions, or reservation locks are created. Selecting a slot creates only a local mailto draft, with explicit instructions that TTBG must confirm it.

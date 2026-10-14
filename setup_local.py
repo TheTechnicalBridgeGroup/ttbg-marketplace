@@ -7,5 +7,6 @@ if not (root/'.env').exists():
 from app import create_app
 from app.models import db
 app=create_app()
-with app.app_context():db.create_all()
+from app.upgrade import upgrade
+with app.app_context():upgrade()
 print('Local database initialized. Run: python -m flask --app run create-admin')

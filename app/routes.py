@@ -10,6 +10,8 @@ from werkzeug.security import generate_password_hash, check_password_hash
 from .models import db, User, Mentor, Service, Booking, LoginAttempt, MentorAudit, now
 from .forms import LoginForm, RegisterForm, ProfileForm, ReviewForm, ServiceForm, BookingForm, EmptyForm, LANES
 from .onboarding_logic import readiness, audit, details_for
+from .security import account_enabled, sign_in, settings
+from .models import AccountAccess
 bp=Blueprint('main',__name__)
 
 @bp.before_app_request
@@ -21,7 +23,7 @@ def block_inactive_mentor():
 
 def after_login():
     target=request.args.get('next','')
-    if target == '/onboarding' or (target.startswith('/book/') and target[6:].isdigit()):
+    if target == '/onboarding' or (target.startswith('/book/') and target[6:].isdigit()) or (target.startswith('/availability/') and target[14:].isdigit()):
         return redirect(target)
     return redirect(url_for('main.dashboard'))
 
@@ -51,20 +53,22 @@ def test_slots(mentor):
 @bp.route('/tutoring')
 def browse():
     lane=request.args.get('lane',''); q=request.args.get('q','').strip()[:100]
-    mentors=Mentor.query.filter_by(status='approved',is_demo=False)
-    if lane in LANES: mentors=mentors.filter_by(lane=lane)
-    if q: mentors=mentors.join(User).filter(db.or_(User.name.ilike('%'+q+'%'),Mentor.title.ilike('%'+q+'%'),Mentor.bio.ilike('%'+q+'%')))
+    mentors=Mentor.query.filter_by(status='approved',is_demo=False).outerjoin(AccountAccess,AccountAccess.user_id==Mentor.user_id).filter(db.or_(AccountAccess.enabled.is_(True),AccountAccess.user_id.is_(None)))
+    if lane in LANES: mentors=mentors.filter(Mentor.lane==lane)
+    if q: mentors=mentors.join(User,Mentor.user_id==User.id).filter(db.or_(User.name.ilike('%'+q+'%'),Mentor.title.ilike('%'+q+'%'),Mentor.bio.ilike('%'+q+'%')))
     return render_template('browse.html',mentors=mentors.order_by(Mentor.id).all(),lanes=LANES,lane=lane,q=q)
 
 @bp.route('/mentor/<int:mid>')
 def mentor(mid):
     m=db.get_or_404(Mentor,mid)
-    if m.status!='approved' or m.is_demo: abort(404)
+    if m.status!='approved' or m.is_demo or not account_enabled(m.user): abort(404)
     return render_template('mentor.html',m=m)
 
 @bp.route('/register',methods=['GET','POST'])
 def register():
     if current_user.is_authenticated: return redirect(url_for('main.dashboard'))
+    if not settings().registration_open:
+        return render_template('registration_closed.html'),403
     form=RegisterForm()
     if form.validate_on_submit():
         u=User(name=form.name.data.strip(),email=form.email.data.strip().lower(),password_hash=generate_password_hash(form.password.data),role='student')
@@ -73,7 +77,7 @@ def register():
         except IntegrityError:
             db.session.rollback(); form.email.errors.append('An account already uses this email. Sign in instead.')
         else:
-            login_user(u); session.permanent=True
+            sign_in(u)
             flash('Your account is ready. Welcome to TTBG.','success')
             return after_login()
     return render_template('auth.html',form=form,register=True)
@@ -86,9 +90,9 @@ def login():
         email=form.email.data.strip().lower()
         if LoginAttempt.query.filter(LoginAttempt.email==email,LoginAttempt.created_at>now()-timedelta(minutes=15)).count()>=8: abort(429)
         u=User.query.filter_by(email=email).first()
-        if u and check_password_hash(u.password_hash,form.password.data) and not (u.mentor and u.mentor.status in ['suspended','deleted']):
+        if u and check_password_hash(u.password_hash,form.password.data) and account_enabled(u):
             LoginAttempt.query.filter_by(email=email).delete(); db.session.commit()
-            login_user(u); session.permanent=True
+            sign_in(u)
             return after_login()
         db.session.add(LoginAttempt(email=email)); db.session.commit()
         form.password.errors.append('Email or password is incorrect.')
@@ -119,7 +123,7 @@ def onboarding():
 @bp.route('/dashboard')
 @login_required
 def dashboard():
-    if current_user.role in ['admin','onboarding']: return redirect(url_for('main.admin'))
+    if current_user.role in ['admin','account_manager','onboarding']: return redirect(url_for('main.admin'))
     m=current_user.mentor
     bookings=Booking.query.filter_by(mentor_id=m.id) if m else Booking.query.filter_by(student_id=current_user.id)
     return render_template('dashboard.html',m=m,bookings=bookings.order_by(Booking.start.desc()).all())
@@ -128,10 +132,12 @@ def dashboard():
 @roles('student')
 def book(sid):
     s=db.get_or_404(Service,sid)
-    if not s.active or s.mentor.status!='approved' or s.mentor.is_demo: abort(404)
+    if not s.active or s.mentor.status!='approved' or s.mentor.is_demo or not account_enabled(s.mentor.user): abort(404)
     # Simulated reservations are available only to explicitly configured tests.
     if not (current_app.testing and current_app.config['TEST_RESERVATIONS_ENABLED']):
         if request.method=='POST': abort(403)
+        if settings().booking_mode=='acuity' and settings().scheduling_provider=='acuity':
+            return redirect(url_for('acuity.availability',sid=s.id))
         return render_template('booking_unavailable.html',s=s)
     form=BookingForm(); form.slot.choices=test_slots(s.mentor)
     if request.method=='GET':
@@ -165,33 +171,33 @@ def book(sid):
 @login_required
 def booking_detail(bid):
     b=db.get_or_404(Booking,bid)
-    if current_user.role not in ['admin','onboarding'] and current_user.id not in (b.student_id,b.mentor.user_id): abort(403)
+    if current_user.role not in ['admin','account_manager','onboarding'] and current_user.id not in (b.student_id,b.mentor.user_id): abort(403)
     return render_template('booking.html',b=b)
 
 @bp.post('/bookings/<int:bid>/cancel')
 @login_required
 def cancel(bid):
     b=db.get_or_404(Booking,bid)
-    if current_user.role not in ['admin','onboarding'] and current_user.id not in (b.student_id,b.mentor.user_id): abort(403)
+    if current_user.role not in ['admin','account_manager','onboarding'] and current_user.id not in (b.student_id,b.mentor.user_id): abort(403)
     if b.status=='demo_reserved':
         b.status='cancelled'; b.slot_key=None; db.session.commit(); flash('Archived test reservation cancelled. No charge was made.','success')
     return redirect(url_for('main.booking_detail',bid=bid))
 
 @bp.route('/admin')
-@roles('admin','onboarding')
+@roles('admin','account_manager','onboarding')
 def admin():
     mentors=Mentor.query
     state=request.args.get('status','')
     if state:mentors=mentors.filter_by(status=state)
     else:mentors=mentors.filter(Mentor.status!='deleted')
     q=request.args.get('q','').strip()[:100]
-    if q:mentors=mentors.join(User).filter(db.or_(User.name.ilike('%'+q+'%'),User.email.ilike('%'+q+'%')))
+    if q:mentors=mentors.join(User,Mentor.user_id==User.id).filter(db.or_(User.name.ilike('%'+q+'%'),User.email.ilike('%'+q+'%')))
     mentors=mentors.order_by(Mentor.created_at.desc()).all()
     bookings=Booking.query.order_by(Booking.created_at.desc()).all()
     return render_template('admin.html',mentors=mentors,bookings=bookings,q=q,state=state)
 
 @bp.route('/admin/mentors/<int:mid>',methods=['GET','POST'])
-@roles('admin','onboarding')
+@roles('admin','account_manager','onboarding')
 def review(mid):
     m=db.get_or_404(Mentor,mid); form=ReviewForm(obj=m)
     if form.validate_on_submit():
@@ -210,25 +216,26 @@ def review(mid):
 
 @bp.route('/admin/mentors/<int:mid>/services/new',methods=['GET','POST'])
 @bp.route('/admin/mentors/<int:mid>/services/<int:sid>',methods=['GET','POST'])
-@roles('admin','onboarding')
+@roles('admin','account_manager','onboarding')
 def service_edit(mid,sid=None):
     m=db.get_or_404(Mentor,mid); s=db.get_or_404(Service,sid) if sid else None
     if s and s.mentor_id!=mid: abort(404)
     if m.status in ['suspended','deleted']:abort(403)
     form=ServiceForm(obj=s)
+    form.fee_percent.data=Decimal(settings().fee_bps)/100
     if request.method=='GET' and s:
-        form.price.data=Decimal(s.price_cents)/100;form.fee_percent.data=Decimal(s.fee_bps)/100
+        form.price.data=Decimal(s.price_cents)/100
     if form.validate_on_submit():
         if not s: s=Service(mentor_id=mid); db.session.add(s)
         for f in ('name','description','duration','acuity_type_id'): setattr(s,f,getattr(form,f).data)
         s.price_cents=int(form.price.data.quantize(Decimal('.01'))*100)
-        s.fee_bps=int(form.fee_percent.data.quantize(Decimal('.01'))*100)
+        s.fee_bps=settings().fee_bps
         audit(m,'Service saved',s.name+'; starting price can be changed by the mentor.')
         db.session.commit(); flash('Service saved.','success'); return redirect(url_for('main.review',mid=mid))
     return render_template('service.html',form=form,m=m,s=s)
 
 @bp.post('/admin/services/<int:sid>/toggle')
-@roles('admin','onboarding')
+@roles('admin','account_manager','onboarding')
 def toggle_service(sid):
     s=db.get_or_404(Service,sid)
     if s.mentor.status in ['suspended','deleted']:abort(403)
@@ -236,4 +243,4 @@ def toggle_service(sid):
     return redirect(url_for('main.review',mid=s.mentor_id))
 
 @bp.get('/health')
-def health(): return {'status':'ok','version':'0.2.2'}
+def health(): return {'status':'ok','version':'0.3.0'}

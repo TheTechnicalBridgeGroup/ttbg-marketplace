@@ -10,6 +10,8 @@ def details_for(m):
 
 def audit(m,action,detail=''):
     db.session.add(MentorAudit(mentor_id=m.id,actor_id=current_user.id,action=action,detail=detail))
+    from .security import log
+    log(action,f'mentor:{m.id}',detail)
 
 def readiness(m):
     d=m.details

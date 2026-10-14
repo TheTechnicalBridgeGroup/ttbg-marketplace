@@ -5,7 +5,8 @@ from .models import db, User, now, MentorInvitation
 def register_commands(app):
     @app.cli.command('init-db')
     def init_db():
-        db.create_all(); click.echo('Marketplace tables created. No existing tables or data were replaced.')
+        from .upgrade import upgrade
+        upgrade(); click.echo('Marketplace schema upgraded. Existing records preserved; future service split is 80/20 on first v0.3 upgrade.')
     @app.cli.command('create-admin')
     @click.option('--email',prompt=True)
     @click.option('--name',prompt=True)
@@ -15,7 +16,7 @@ def register_commands(app):
         if User.query.filter_by(email=email.strip().lower()).first(): raise click.ClickException('Email already exists; no changes made.')
         db.session.add(User(email=email.strip().lower(),name=name,password_hash=generate_password_hash(password),role='admin'))
         db.session.commit(); click.echo('Admin created.')
-    @app.cli.command('create-onboarding-user')
+    @app.cli.command('create-account-manager')
     @click.option('--email',prompt=True)
     @click.option('--name',prompt=True)
     @click.password_option(confirmation_prompt=True)
@@ -26,8 +27,8 @@ def register_commands(app):
         if len(password)<12:raise click.ClickException('Use at least 12 characters.')
         if not name.strip() or len(name)>100:raise click.ClickException('Enter a name of 1–100 characters.')
         if User.query.filter_by(email=email).first():raise click.ClickException('Email already exists; no changes made.')
-        db.session.add(User(email=email,name=name.strip(),password_hash=generate_password_hash(password),role='onboarding'))
-        db.session.commit();click.echo('Onboarding team account created. They can manage mentor profiles and services in Workspace.')
+        db.session.add(User(email=email,name=name.strip(),password_hash=generate_password_hash(password),role='account_manager'))
+        db.session.commit();click.echo('Account Manager created. They can manage mentor profiles and services in Workspace.')
     @app.cli.command('reset-password')
     @click.option('--email',prompt=True)
     @click.password_option(confirmation_prompt=True)
@@ -35,9 +36,13 @@ def register_commands(app):
         u=User.query.filter_by(email=email.strip().lower()).first()
         if not u: raise click.ClickException('Account not found.')
         if len(password)<12: raise click.ClickException('Use at least 12 characters.')
+        from .security import invalidate
+        invalidate(u)
         u.password_hash=generate_password_hash(password)
         if u.mentor:
             from .onboarding_logic import details_for
             details_for(u.mentor).activated_at=now()
             MentorInvitation.query.filter_by(mentor_id=u.mentor.id).delete()
         db.session.commit();click.echo('Password updated; any mentor activation link was revoked.')
+
+    app.cli.add_command(create_onboarding_user, 'create-onboarding-user')

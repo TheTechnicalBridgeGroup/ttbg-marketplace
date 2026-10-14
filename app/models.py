@@ -1,6 +1,7 @@
 from datetime import datetime, timezone
 from flask_login import UserMixin
 from flask_sqlalchemy import SQLAlchemy
+from sqlalchemy.dialects.mysql import MEDIUMBLOB
 
 db = SQLAlchemy()
 def now(): return datetime.now(timezone.utc).replace(tzinfo=None)
@@ -27,6 +28,10 @@ class Mentor(db.Model):
     review_note = db.Column(db.Text, default='')
     acuity_calendar_id = db.Column(db.String(40), default='')
     is_demo = db.Column(db.Boolean, default=False, nullable=False)
+    @property
+    def publicly_visible(self):
+        return self.status=='approved' and not self.is_demo and (not self.user.access or self.user.access.enabled)
+
     services = db.relationship('Service', backref='mentor', lazy=True)
     created_at = db.Column(db.DateTime, default=now, nullable=False)
 
@@ -38,7 +43,7 @@ class Service(db.Model):
     description = db.Column(db.String(1000), default='')
     price_cents = db.Column(db.Integer, nullable=False)
     duration = db.Column(db.Integer, nullable=False, default=60)
-    fee_bps = db.Column(db.Integer, nullable=False, default=1500)
+    fee_bps = db.Column(db.Integer, nullable=False, default=2000)
     acuity_type_id = db.Column(db.String(40), default='')
     active = db.Column(db.Boolean, default=True, nullable=False)
 
@@ -111,3 +116,119 @@ class MentorAudit(db.Model):
     action = db.Column(db.String(100), nullable=False)
     detail = db.Column(db.Text, default='')
     created_at = db.Column(db.DateTime, default=now, nullable=False)
+
+# Additive v0.3 tables: existing production tables and history are preserved.
+class AccountAccess(db.Model):
+    __tablename__ = 'market_account_access'
+    user_id = db.Column(db.Integer, db.ForeignKey('market_user.id'), primary_key=True)
+    user = db.relationship('User', backref=db.backref('access', uselist=False))
+    enabled = db.Column(db.Boolean, default=True, nullable=False)
+    session_version = db.Column(db.Integer, default=0, nullable=False)
+    last_login_at = db.Column(db.DateTime)
+
+class PasswordLink(db.Model):
+    __tablename__ = 'market_password_link'
+    user_id = db.Column(db.Integer, db.ForeignKey('market_user.id'), primary_key=True)
+    token_hash = db.Column(db.String(64), unique=True, nullable=False)
+    expires_at = db.Column(db.DateTime, nullable=False)
+    used_at = db.Column(db.DateTime)
+    purpose = db.Column(db.String(20), default='reset', nullable=False)
+
+class PlatformSettings(db.Model):
+    __tablename__ = 'market_platform_settings'
+    id = db.Column(db.Integer, primary_key=True)
+    site_title = db.Column(db.String(80), default='TTBG Marketplace', nullable=False)
+    description = db.Column(db.String(240), default='Find your next step with The Technical Bridge Group.', nullable=False)
+    support_email = db.Column(db.String(254), default='Destinee.Walker@TheTechnicalBridgeGroup.com', nullable=False)
+    registration_open = db.Column(db.Boolean, default=True, nullable=False)
+    maintenance_mode = db.Column(db.Boolean, default=False, nullable=False)
+    fee_bps = db.Column(db.Integer, default=2000, nullable=False)
+    scheduling_provider = db.Column(db.String(20), default='unselected', nullable=False)
+    booking_mode = db.Column(db.String(20), default='contact', nullable=False)
+    updated_at = db.Column(db.DateTime, default=now, onupdate=now, nullable=False)
+
+class PlatformAudit(db.Model):
+    __tablename__ = 'market_platform_audit'
+    id = db.Column(db.Integer, primary_key=True)
+    actor_id = db.Column(db.Integer, db.ForeignKey('market_user.id'))
+    actor = db.relationship('User')
+    action = db.Column(db.String(100), nullable=False)
+    target = db.Column(db.String(100), nullable=False)
+    detail = db.Column(db.Text, default='')
+    created_at = db.Column(db.DateTime, default=now, nullable=False)
+
+class PhotoSubmission(db.Model):
+    __tablename__ = 'market_photo_submission'
+    id = db.Column(db.Integer, primary_key=True)
+    mentor_id = db.Column(db.Integer, db.ForeignKey('market_mentor.id'), nullable=False, index=True)
+    mentor = db.relationship('Mentor')
+    submitted_by = db.Column(db.Integer, db.ForeignKey('market_user.id'), nullable=False)
+    image = db.Column(db.LargeBinary().with_variant(MEDIUMBLOB(), 'mysql'), nullable=True)
+    status = db.Column(db.String(20), default='pending', nullable=False, index=True)
+    note = db.Column(db.String(500), default='')
+    reviewed_by = db.Column(db.Integer, db.ForeignKey('market_user.id'))
+    created_at = db.Column(db.DateTime, default=now, nullable=False)
+    reviewed_at = db.Column(db.DateTime)
+
+class MentorPhoto(db.Model):
+    __tablename__ = 'market_mentor_photo'
+    mentor_id = db.Column(db.Integer, db.ForeignKey('market_mentor.id'), primary_key=True)
+    mentor = db.relationship('Mentor', backref=db.backref('photo', uselist=False))
+    approved_id = db.Column(db.Integer, db.ForeignKey('market_photo_submission.id'))
+    pending_id = db.Column(db.Integer, db.ForeignKey('market_photo_submission.id'))
+
+class ServiceScheduling(db.Model):
+    __tablename__ = 'market_service_scheduling'
+    service_id = db.Column(db.Integer, db.ForeignKey('market_service.id'), primary_key=True)
+    service = db.relationship('Service', backref=db.backref('scheduling', uselist=False))
+    provider = db.Column(db.String(20), default='unselected', nullable=False)
+    event_type_id = db.Column(db.String(120), default='')
+    booking_url = db.Column(db.String(1000), default='')
+
+class MentorIntegration(db.Model):
+    __tablename__ = 'market_mentor_integration'
+    mentor_id = db.Column(db.Integer, db.ForeignKey('market_mentor.id'), primary_key=True)
+    mentor = db.relationship('Mentor', backref=db.backref('integration', uselist=False))
+    provider_user_id = db.Column(db.String(120), default='')
+    stripe_account_id = db.Column(db.String(120), default='')
+
+class SchemaRevision(db.Model):
+    __tablename__ = 'market_schema_revision'
+    name = db.Column(db.String(80), primary_key=True)
+    applied_at = db.Column(db.DateTime, default=now, nullable=False)
+
+# Additive support tables; existing account, booking and payment data are unchanged.
+class SupportNote(db.Model):
+    __tablename__ = 'market_support_note'
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('market_user.id'), nullable=False, index=True)
+    author_id = db.Column(db.Integer, db.ForeignKey('market_user.id'), nullable=False)
+    author = db.relationship('User', foreign_keys=[author_id])
+    body = db.Column(db.String(2000), nullable=False)
+    created_at = db.Column(db.DateTime, default=now, nullable=False)
+
+class SupportIncident(db.Model):
+    __tablename__ = 'market_support_incident'
+    id = db.Column(db.Integer, primary_key=True)
+    reference = db.Column(db.String(32), unique=True, nullable=False)
+    user_id = db.Column(db.Integer, db.ForeignKey('market_user.id'), index=True)
+    route = db.Column(db.String(200), nullable=False)
+    method = db.Column(db.String(10), nullable=False)
+    error_type = db.Column(db.String(100), nullable=False)
+    status = db.Column(db.String(20), default='open', nullable=False, index=True)
+    resolution = db.Column(db.String(500), default='')
+    resolved_by = db.Column(db.Integer, db.ForeignKey('market_user.id'))
+    resolved_at = db.Column(db.DateTime)
+    created_at = db.Column(db.DateTime, default=now, nullable=False, index=True)
+
+class SensitiveAttempt(db.Model):
+    __tablename__ = 'market_sensitive_attempt'
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('market_user.id'), nullable=False, index=True)
+    created_at = db.Column(db.DateTime, default=now, nullable=False, index=True)
+
+class AvailabilityRequest(db.Model):
+    __tablename__ = 'market_availability_request'
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('market_user.id'), nullable=False, index=True)
+    created_at = db.Column(db.DateTime, default=now, nullable=False, index=True)

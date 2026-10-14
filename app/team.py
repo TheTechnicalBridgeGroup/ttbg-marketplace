@@ -10,15 +10,16 @@ from .routes import roles
 from .models import db, User, Mentor, Service, Booking, MentorDetails, MentorInvitation, MentorAudit, now
 from .forms import AdminProfileForm, LifecycleForm, ActivateForm, MentorPriceForm, PROFILE_CHECKS
 from .onboarding_logic import details_for, audit, readiness
+from .security import account_enabled, sign_in, invalidate
 bp=Blueprint('team',__name__)
 DETAIL_FIELDS=['phone','timezone','specialties','languages','years_experience','education','session_approach','application_reference','internal_notes']+PROFILE_CHECKS
 
 def owner_choices(form):
-    form.owner_id.choices=[(0,'Unassigned')]+[(u.id,u.name) for u in User.query.filter(User.role.in_(['admin','onboarding'])).order_by(User.name)]
+    form.owner_id.choices=[(0,'Unassigned')]+[(u.id,u.name) for u in User.query.filter(User.role.in_(['admin','account_manager','onboarding'])).order_by(User.name)]
 
 @bp.route('/admin/mentors/new',methods=['GET','POST'])
 @bp.route('/admin/mentors/<int:mid>/edit',methods=['GET','POST'])
-@roles('admin','onboarding')
+@roles('admin','account_manager','onboarding')
 def profile_edit(mid=None):
     m=db.get_or_404(Mentor,mid) if mid else None
     if m and m.status=='deleted':
@@ -35,7 +36,7 @@ def profile_edit(mid=None):
         existing=User.query.filter_by(email=email).first()
         if m and existing and existing.id!=m.user_id:
             form.email.errors.append('This email belongs to another account.')
-        elif not m and existing and (existing.role!='student' or existing.mentor):
+        elif not m and existing and (existing.role!='student' or existing.mentor or not account_enabled(existing)):
             form.email.errors.append('This account already has a mentor or staff role. Open its existing profile instead.')
         elif not m and existing and not form.confirm_link.data:
             form.confirm_link.errors.append('Confirm the applicant’s identity before linking an existing student account.')
@@ -56,7 +57,7 @@ def profile_edit(mid=None):
                 setattr(d,f,value.strip() if isinstance(value,str) else value)
             d.owner_id=form.owner_id.data or None
             if not creating and old_email!=email:
-                MentorInvitation.query.filter_by(mentor_id=m.id).delete()
+                invalidate(m.user)
             # Published profiles with removed readiness requirements return to review.
             db.session.flush()
             if m.status=='approved' and not all(ok for _,ok in readiness(m)):m.status='reviewing'
@@ -70,7 +71,7 @@ def profile_edit(mid=None):
     return render_template('profile_edit.html',form=form,m=m,checks=PROFILE_CHECKS)
 
 @bp.route('/admin/mentors/<int:mid>/lifecycle',methods=['GET','POST'])
-@roles('admin','onboarding')
+@roles('admin','account_manager','onboarding')
 def lifecycle(mid):
     m=db.get_or_404(Mentor,mid);form=LifecycleForm()
     if request.method=='GET':
@@ -83,7 +84,7 @@ def lifecycle(mid):
             action=form.action.data
             if (action=='restore' and m.status not in ['deleted','suspended']) or (action=='suspend' and m.status=='deleted'):abort(400)
             old=m.status;m.status={'suspend':'suspended','delete':'deleted','restore':'draft'}[action]
-            MentorInvitation.query.filter_by(mentor_id=mid).delete()
+            invalidate(m.user)
             audit(m,'Profile '+m.status,form.reason.data.strip()+f' (previous status: {old})')
             db.session.commit()
             flash('Profile removed from the directory. Account access is blocked; session history is retained.' if action=='delete' else 'Profile suspended; new bookings and account access are blocked. Existing reservations are unchanged.' if action=='suspend' else 'Profile restored to draft. Review it before publishing.','success')
@@ -92,10 +93,10 @@ def lifecycle(mid):
     return render_template('lifecycle.html',m=m,form=form,active=active)
 
 @bp.post('/admin/mentors/<int:mid>/invite')
-@roles('admin','onboarding')
+@roles('admin','account_manager','onboarding')
 def invite(mid):
     m=db.get_or_404(Mentor,mid)
-    if m.status in ['deleted','suspended']:abort(403)
+    if m.status in ['deleted','suspended'] or not account_enabled(m.user):abort(403)
     d=details_for(m)
     if d.activated_at:
         flash('This mentor already has account access. They should sign in with their existing password.','error')
@@ -116,7 +117,7 @@ def activate(token):
     token_hash=hashlib.sha256(token.encode()).hexdigest()
     inv=MentorInvitation.query.filter_by(token_hash=token_hash).first()
     m=db.session.get(Mentor,inv.mentor_id) if inv else None
-    valid=inv and not inv.used_at and inv.expires_at>now() and m and m.status not in ['deleted','suspended']
+    valid=inv and not inv.used_at and inv.expires_at>now() and m and account_enabled(m.user)
     if not valid:return render_template('activation_expired.html'),400
     form=ActivateForm()
     if form.validate_on_submit():
@@ -126,7 +127,7 @@ def activate(token):
         m.user.password_hash=generate_password_hash(form.password.data)
         d=details_for(m);d.activated_at=now()
         db.session.add(MentorAudit(mentor_id=m.id,actor_id=m.user_id,action='Account activated',detail='Mentor chose their own password.'))
-        db.session.commit();logout_user();session.clear();login_user(m.user);session.permanent=True
+        invalidate(m.user);db.session.commit();sign_in(m.user)
         flash('Your account is ready. You can review your profile and set your prices.','success')
         return redirect(url_for('main.dashboard'))
     return render_template('activate.html',m=m,form=form)
@@ -147,7 +148,7 @@ def price(sid):
     return render_template('price.html',s=s,form=form)
 
 @bp.get('/admin/mentors/<int:mid>/preview')
-@roles('admin','onboarding')
+@roles('admin','account_manager','onboarding')
 def preview(mid):
     m=db.get_or_404(Mentor,mid)
     return render_template('mentor.html',m=m,preview=True)

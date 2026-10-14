@@ -1,90 +1,92 @@
-# Deploy the TTBG Marketplace to Render
+# Deploy TTBG Marketplace v0.4.1
 
-For an update, use the existing marketplace GitHub repository and Render service. Keep the current database, secret key, and private environment settings. Provision a dedicated repository and service only for a first installation. The mentor portal, help desk, Squarespace, and existing scheduling service remain separate.
+Update the existing **ttbg-marketplace** repository and Render service. Do not upload the mentor portal or help desk code into this repository.
 
-## 1. Prepare GitHub
+## Before deployment
 
-Extract the project and upload the contents of `ttbg-marketplace` to the repository root. `run.py`, `requirements.txt`, and `render.yaml` should be at the root. Do not upload `.env`, `.venv`, `instance`, database files, or cache folders. The included `.gitignore` covers them when using Git.
+1. Back up the current marketplace database through its provider.
+2. Keep the existing `SECRET_KEY`, `DATABASE_URL`, and account credentials.
+3. Extract this ZIP and copy the contents of its `ttbg-marketplace` folder to the repository root. `run.py` and `requirements.txt` belong at that root.
+4. Do not upload `.env`, local databases, `.venv`, or cache folders.
 
-## 2. Choose a database
+## Render commands
 
-Use a dedicated database or database branch for this application so you can test without affecting the existing apps. The application uses `market_` table prefixes and never imports or alters the portal/help desk models.
+Build:
 
-Copy a SQLAlchemy-compatible connection string from your database provider; URL-encode special characters in the username/password. Both database drivers are included:
-
-- PostgreSQL: `postgresql+psycopg://USER:PASSWORD@HOST:5432/DATABASE?sslmode=require`
-- MySQL: `mysql+pymysql://USER:PASSWORD@HOST:3306/DATABASE?ssl_verify_cert=true&ssl_verify_identity=true`
-
-Choose the string that matches the actual database engine. PlanetScale branding alone does not determine which driver to use. Use the provider's documented CA/TLS settings if it requires a particular certificate path. A certificate file must exist on the host if referenced.
-
-**Do not use the default SQLite URL on an ephemeral Render filesystem.** The service will otherwise lose data on redeployment/restart. Production database connectivity and TLS must be verified in your account.
-
-## 3. Create the web service
-
-Use the included Render Blueprint, or create a Python web service manually:
-
-- Build command: `pip install -r requirements.txt`
-- Start command: `flask --app run init-db && gunicorn run:app --bind 0.0.0.0:$PORT --workers 2 --timeout 60`
-- Health check: `/health`
-- Python: 3.12
-
-Set environment variables:
-
-| Name | Value |
-| --- | --- |
-| `SECRET_KEY` | Keep the existing secret; generate at least 32 random characters for a new installation |
-| `DATABASE_URL` | Your dedicated external database connection string |
-| `COOKIE_SECURE` | `true` |
-| `PUBLIC_BASE_URL` | The marketplace HTTPS origin for account activation links |
-
-The Blueprint can generate `SECRET_KEY` and prompts for `DATABASE_URL`. Select the Render service plan appropriate to your account; no price assumptions are built into this package.
-
-## 4. Create the administrator
-
-After the first successful deployment, open an authorized terminal for the service and run:
-
-```bash
-flask --app run create-admin
+```text
+pip install -r requirements.txt
 ```
 
-Use your own email and a unique password. If your service does not offer a host shell, run this CLI locally with the same dedicated remote `DATABASE_URL` in a private `.env`. Do not put a password in source code or command-line arguments.
+Start:
 
-Create real mentor profiles through Workspace. Previously seeded fictional profiles are automatically excluded from public views; staff can review or soft-delete them through profile controls. No seeding command is included.
+```text
+flask --app run init-db && gunicorn run:app --bind 0.0.0.0:$PORT --workers 2 --timeout 60
+```
 
-## 5. Verify the hosted marketplace
+Health path: `/health`. Python: 3.12 or newer.
 
-- Open the directory and sign in with your admin.
-- Create separate mentor and student test accounts.
-- Submit, review, approve, and publish a mentor/service.
-- Confirm session enquiries direct visitors to TTBG and that direct reservation submissions are blocked.
-- Confirm historical test records are not presented as revenue or confirmed appointments.
-- Restart the service and verify the records remain.
-- Keep the original portal and help desk running independently.
+For multiple Render instances, run `flask --app run init-db` once as a controlled pre-deploy step, then start the instances with the Gunicorn portion only. Do not run simultaneous first-time schema creation against the same database.
 
-## 6. Custom domain
+## Environment
 
-For a new custom domain, add `app.thetechnicalbridgegroup.com` in Render's custom-domain settings. Use the DNS record and exact target Render supplies to create the corresponding record in your domain's DNS manager. Keep `www` pointing to Squarespace. Wait for domain verification and HTTPS before linking the app from Squarespace.
+| Variable | Value |
+| --- | --- |
+| `SECRET_KEY` | Preserve the existing random secret, at least 32 characters |
+| `DATABASE_URL` | Existing persistent marketplace database connection |
+| `COOKIE_SECURE` | `true` for HTTPS |
+| `PUBLIC_BASE_URL` | Exact public HTTPS marketplace origin, without a path or trailing slash |
+| `ACUITY_USER_ID` | Numeric Acuity API user ID; optional until availability is enabled |
+| `ACUITY_API_KEY` | Acuity API key; backend-only, admin password required to reveal |
+| `STRIPE_SECRET_KEY` | Optional future Stripe Connect credential; checkout is not implemented |
+| `STRIPE_WEBHOOK_SECRET` | Optional future webhook signing secret; webhook processing is not implemented |
 
-No DNS, production data, GitHub repository, or Render service was changed while creating this project.
+Use the connection string and TLS options required by your database provider:
 
-## v0.2 upgrade and onboarding access
+- PostgreSQL: `postgresql+psycopg://USER:PASSWORD@HOST:PORT/DATABASE` plus provider TLS parameters.
+- MySQL: `mysql+pymysql://USER:PASSWORD@HOST:PORT/DATABASE` plus provider CA/TLS parameters.
 
-Back up your existing marketplace database, deploy the v0.2 source, and run `flask --app run init-db` (already included in the start command). Three additive tables hold extended mentor profiles, activation tokens, and audit events. Existing v0.1 users, services, and reservations are retained.
+Do not use SQLite on Render’s ephemeral disk. Photos are stored in the persistent database and are covered by its backup policy. No new dependency is required for v0.4. The v0.3 dependency Pillow is used for image decoding and re-encoding; the existing Flask/database stack is retained.
 
-Set `PUBLIC_BASE_URL` to the HTTPS origin you actually use, with no trailing path, for example `https://app.thetechnicalbridgegroup.com`. It controls activation-link generation. If unset, links use the current request's origin; configure it explicitly on hosting.
+Render’s forwarded protocol header is trusted only when its `RENDER` environment is present. Same-origin HTTPS form referrers and CSRF checks remain enabled. No production credentials are included in the ZIP.
 
-Create a delegated onboarding account using `flask --app run create-onboarding-user`. Each staff member gets separate credentials. They have workspace access to mentor profiles, services, and archived test records. The owner field is a coordination tool, not an access restriction.
+## What the first upgrade changes
 
-All application CTAs now link to the existing mentor portal. Use **Workspace → Create mentor profile** to onboard an accepted applicant. Generate a one-time setup link and share it privately yourself; the app does not send messages or email.
+`init-db` creates the added account-access, password-link, platform-settings, platform-audit, photo-submission, mentor-photo, service-scheduling, mentor-integration, and schema-revision tables. Existing tables retain their columns. v0.4 also creates `market_support_note`, `market_support_incident`, `market_sensitive_attempt`, and `market_availability_request`; no existing production table is rebuilt.
 
-Do not seed fictional profiles into a public launch database. Existing sample profiles can be deleted through the v0.2 profile controls.
+- Existing Admins stay Admins.
+- Legacy `onboarding` users become Account Managers.
+- Future service commissions become 20% TTBG / 80% mentor.
+- Existing users, password hashes, mentor records, and booking amount snapshots stay intact.
+- A revision marker prevents subsequent restarts from overwriting an Admin’s later commission configuration.
 
-## Updating this release
+If the service has no Admin yet, run `flask --app run create-admin` in an authorized shell. For password recovery, use `flask --app run reset-password`. Existing installations do not need another Admin account merely to upgrade.
 
-Upload the contents of `ttbg-marketplace` to the existing marketplace repository root. Do not upload the mentor-portal project to this repository. Preserve current environment values and database data. This update introduces no schema changes.
+## After deployment
 
-If the hosting build/start command still invokes a fictional-profile seeding command, remove that invocation and use the commands above. The `init-db`, account-creation, and password-reset commands remain available. Obsolete reservation-simulation environment settings are ignored by this release.
+1. Sign in with your existing Admin. Open **Admin → Platform overview**.
+2. Review existing staff roles in **Accounts**. Reassign staff to Account Manager where appropriate.
+3. Set support email, site metadata, and registration options in **Settings & booking**.
+4. Confirm mentor publication, photo submission/approval, and password setup using designated test accounts.
+5. Check that a pending photo is private and the approved photo survives a restart.
+6. Confirm Account Managers cannot open Accounts, Database, Settings, Resources, or Audit pages.
+7. Verify Support Center is denied to students/mentors and accessible to Admins/Account Managers. Confirm Account Managers cannot reveal keys or reset staff accounts.
+8. Confirm credential values are absent from the initial HTML; test the admin confirmation dialog on a private screen using a non-production key first.
+9. Keep **Contact TTBG** until Acuity API credentials, calendar IDs, and appointment-type IDs are configured. Check Acuity connectivity in Support Center, inspect one mentor/service's availability, and then enable **Acuity live availability + contact to confirm** if desired.
+10. Verify the calendar on a phone and desktop, including dark mode, timezone changes, empty dates, and denied Acuity requests. Compare the results with Acuity directly. The source package was tested with mocked provider responses, not your live account.
+11. Keep Stripe checkout and appointment creation as the next integration stage. No automatic payment split, refund, webhook, or mentor account onboarding endpoint is shipped in this release.
 
-The included Blueprint service name is `ttbg-marketplace`. For an existing Blueprint-managed service, review any proposed service-name change before applying the Blueprint. A normal source deployment does not require recreating your service.
+The Blueprint service name is `ttbg-marketplace`. Keep the existing service identity when updating; do not accidentally provision a second service or replace the existing database.
 
-Acuity scheduling and payment processing are not implemented in this package. Removing prerelease wording does not connect those services.
+## Operations and rollback
+
+Maintenance mode is available under Admin settings. Admin sign-in and health checks remain accessible while maintenance mode is active. Render/PlanetScale consoles remain responsible for server lifecycle, scaling, environment secrets, backups, and billing; no infrastructure API credentials are installed by this update.
+
+The database changes are additive. Before rolling application code backward, account for the new `account_manager` role, future-service commission changes, and security state: older code does not enforce v0.3 disabled-account/session/photo rules. Prefer a forward fix; use your database backup only as part of a deliberate recovery plan, since restoring it can discard newer records.
+
+## Local Windows upgrade
+
+Keep the existing local `instance/marketplace.db` and `.env` if you want to retain local accounts. Back them up before replacing source files, then run `start-windows.bat` from the updated project folder. The launcher runs the additive upgrade and starts http://127.0.0.1:5000. Extracting the ZIP into a separate folder creates a separate local database unless you deliberately copy the existing database and configuration into it. Do not copy a live hosting database URL into a local test configuration unintentionally.
+
+## Support record retention
+
+Support notes, audit records, and incidents persist in the database and its backups. Short-lived verification and availability throttling records are pruned for each account when it uses the corresponding workflow again. Set a retention process before traffic grows; the app does not yet run scheduled global archival. Configure external uptime/error monitoring separately to cover failures before Flask starts or while its database is offline.

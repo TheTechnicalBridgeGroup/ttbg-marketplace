@@ -1,71 +1,128 @@
-# TTBG Marketplace — v0.2.2
+# TTBG Marketplace — v0.4.1
 
-The TTBG Marketplace provides the production mentor directory, team-led onboarding, account access, and mentor-controlled service pricing. The navy-and-gold design, logo, and light/dark mode are retained.
+The TTBG Flask marketplace includes a staff-only Support Center, password-protected API-key reveal, a refreshed interface, square mentor profile photos, and native Acuity availability. Stripe Connect remains the planned 80/20 payment integration; this release does not charge customers or create appointments.
 
-**Scheduling and payments are handled separately.** This code does not connect to Acuity or a payment provider. Public pages direct visitors to TTBG to arrange sessions; generated time slots and simulated reservation creation are disabled outside automated tests. No appointments, charges, emails, or payouts are created by this application.
+## Role hierarchy
 
-## What changed in v0.2
+| Capability | Admin | Account Manager | Mentor | Mentee / Student |
+| --- | --- | --- | --- | --- |
+| Create staff/student accounts; manage roles and account access | Yes | No | No | No |
+| Create and manage mentor profiles and services | Yes | Yes | Own profile and prices | No |
+| Issue password resets and revoke sessions | All accounts | Students and mentors only | No | No |
+| Support account search, internal notes, activity, booking lookup, error triage | Yes | Yes | No | No |
+| Reveal an allowlisted API credential after password confirmation | Yes | No | No | No |
+| Submit mentor profile pictures | Any mentor | Any mentor | Own picture | No |
+| Approve/reject/remove published mentor pictures | Yes | Yes | No | No |
+| Platform settings, commission, maintenance, metadata | Yes | No | No | No |
+| Database explorer, CSV pages, statistics, audit, diagnostics | Yes | No | No | No |
+| Scheduling URL/event references | Yes | Yes | View own service prices | No |
+| Stripe connected-account references | Yes | No | No | No |
+| Browse public mentors and provider booking links | Yes | Yes | Yes | Yes |
 
-- Every **Become a mentor** link opens https://ttbg-mentor-portal.onrender.com/apply. The marketplace does not accept new mentor applications.
-- Admins and the onboarding team can create and update mentor profiles, assign an owner, record private notes, and track publication readiness.
-- Profiles have draft, review, approved, suspended, and deleted states. Suspension blocks sign-in and new reservations immediately, including already signed-in sessions.
-- Delete removes a profile from the public directory and normal workspace listing. It is a recoverable deletion: account and booking history remain, and deleted profiles can be restored to draft.
-- Mentors change their own service prices in dollars from their dashboard. They cannot change TTBG commission or another mentor’s rates. Existing bookings keep their original price/fee; pricing does not initiate checkout or payment.
-- New admin-created accounts use one-time activation links. The mentor chooses their password. Links expire in seven days; replacement links invalidate older links.
-- An onboarding staff role lets your team do this work without using your admin account.
+Existing `admin` accounts stay Admins. Existing `onboarding` accounts become Account Managers during `init-db`. This avoids silently removing anyone’s administrative access; an Admin can reassign other staff after deployment. Mentor accounts remain tied to mentor profiles, so staff roles cannot be attached to an existing mentor identity through the role editor.
 
-## Quick start on Windows
+## Admin workspace
 
-1. Extract the folder. Install Python 3.12 or newer if necessary.
-2. Double-click `start-windows.bat`. It prepares the local environment and starts the app.
-3. Open http://127.0.0.1:5000. Keep the terminal open.
-4. In a second terminal inside the project folder, create your administrator:
+Sign in and choose **Admin** in the main navigation.
+
+- **Platform overview:** account totals, signups in the last 30 days, accounts by role, mentor publication states, services, pending pictures, and table record counts.
+- **Accounts:** find accounts, create Account Managers, Admins, and students; create mentors through the existing mentor-profile workflow; change identity details and roles; enable/disable access; revoke sessions; issue password-reset links.
+- **Settings & booking:** site title and description, support address, student registration, maintenance mode, scheduler choice, hosted booking links, and company share.
+- **Database:** paginated access to every application table and CSV exports of the displayed 50-record page. Password hashes, reset-token hashes, and photo bytes are excluded. Use task-specific forms to make changes.
+- **Audit history:** identity changes, profile actions, commission/settings changes, exports, and photo decisions. Existing older mentor-only events remain visible in mentor history and the database explorer.
+- **Resources:** application/runtime information, database connectivity, disk capacity, and hosting-console links. Actual server restarts, scaling, deployments, secrets, backups, and billing remain in Render/PlanetScale. This release does not connect to their infrastructure management APIs or provide a web shell.
+
+Sensitive account/configuration actions require the acting Admin’s password and a reason. Admins cannot disable/demote themselves or remove the last enabled Admin. Account changes and resets invalidate previous sessions and unused links. Staff/mentor identity linking remains explicitly confirmed and cannot take over an existing staff account.
+
+## Account creation and password resets
+
+1. Open **Admin → Accounts → Create staff or student**. For mentors, choose **Create mentor** instead.
+2. Enter the person’s name, email, role, reason, and your own Admin password.
+3. Copy the one-time setup link shown after saving and privately give it to that person.
+4. The person chooses a password of at least 12 characters.
+
+For an existing account, choose **Manage → Reset password**. Links expire after one hour, work once, and replace earlier links. They are hashed in storage; passwords and plaintext tokens are not logged. No email or message is sent automatically. Existing mentor onboarding links still work and expire after seven days.
+
+Disabled accounts and suspended/deleted mentor profiles cannot sign in or complete password setup. Re-enabling an account does not republish a suspended mentor profile.
+
+## Mentor profile pictures
+
+Mentors choose **My dashboard → Manage my profile picture**. Staff choose **Mentor overview → Profile picture** to submit on behalf of a mentor.
+
+- JPEG, PNG, and WebP still images; maximum upload 5 MB and 16 megapixels.
+- The server verifies and decodes the file, crops to 512 × 512, and re-encodes JPEG pixels without original filenames or EXIF metadata.
+- Photos are stored in the database, not Render’s ephemeral filesystem.
+- A new submission enters **Photo approvals**. The previous approved image stays public until its replacement is approved.
+- Admins and Account Managers can approve, request a replacement with feedback, or remove the published picture. A staff upload also enters the queue rather than publishing automatically.
+- Pending/rejected pictures are not public. Private images are restricted to the owner and staff. Hidden/disabled mentors’ photos are not publicly served.
+- Superseded/rejected image bytes are discarded; review metadata is retained. At most the current approved and current pending picture are retained per mentor.
+
+## Scheduling and the 80/20 split
+
+The first v0.3 upgrade sets the future session allocation to **80% mentor / 20% TTBG** for existing services. Existing booking snapshots are preserved. Admins can subsequently change the platform share; Account Managers and mentors cannot override it. Calculations use integer cents and preserve the full session total after rounding.
+
+The chosen direction is **Acuity for scheduling, Stripe Connect for payments**, with TTBG retaining the student-facing interface and mentors completing their own Stripe-hosted financial onboarding.
+
+This release implements Acuity's read-only availability stage:
+
+1. In hosting environment settings, enter `ACUITY_USER_ID` and `ACUITY_API_KEY` from TTBG's API-enabled Acuity account. Keep credentials out of Git and profile fields.
+2. Save the mentor's **Acuity calendar ID** in their mentor profile. Save the service's **Acuity appointment type ID** in the service form, or its Acuity event reference in Scheduling. An Acuity event reference takes precedence over the older service field.
+3. Open **Support → Integrations → Check Acuity connection**. This authenticates a read-only `/me` request. A successful check does not verify appointment mappings or Stripe readiness.
+4. Staff can use **Support → Account → Check availability** for an approved mentor's active service before public activation.
+5. In **Admin → Settings & booking**, select **Acuity Scheduling** and **Acuity live availability + contact to confirm**. The mentor profile then links to TTBG's native calendar. Student/mentor sign-in is required to access it.
+6. The calendar fetches available dates and times for the mapped mentor/service. Users can change timezone and inspect dates up to six months ahead. Selecting a time drafts an email to TTBG; it does not hold a slot, create an appointment, or charge a card.
+
+Contact TTBG remains the default until you enable availability. Existing provider/hosted-link configurations are preserved for compatibility. Hosted links are still optional fallback links, not synchronized booking or payment processing.
+
+See `SCHEDULING_OPTIONS.md` for the agreed staged architecture and the remaining Stripe Connect, appointment creation, webhook, refund, and reconciliation work. No made-up availability is presented. Historical test bookings are preserved and do not count as live revenue.
+
+## Support Center
+
+Choose **Submit a ticket** in the Support Center header to open the existing TTBG help desk new-ticket form in a separate tab. Sign in with your help desk account if prompted; marketplace sign-in is not shared with the help desk. The button is available only within the staff-only Support Center.
+
+Only the exact `admin` and `account_manager` roles can access `/support`, including its POST actions. The legacy `onboarding` role must be migrated through `init-db`; it does not grant Support Center access on its own.
+
+- Search all accounts by name, email, numeric ID, and role.
+- See enabled/restricted status, recent sign-in attempts, mentor links, the latest account/mentor activity, and recent stored bookings.
+- Write internal, append-only notes. They are never shown on student/mentor dashboards and record the author and time.
+- Generate one-time reset links or revoke sessions with your own password and an audit reason. Account Managers can perform these actions only for students and mentors. Admins can also help staff accounts. No automatic email is sent.
+- Find stored bookings and inspect their recorded allocation and status. Provider payments, delivery confirmations, and appointments are not verified by these records.
+- Triage unhandled application errors and Acuity request failures using a reference ID. Errors record only the route template, method, type, affected account if signed in, and time. They exclude raw exception messages, URL parameters, request bodies, and credentials. Both staff roles can add resolution notes and close an issue.
+- Check Acuity connectivity without receiving credential values. If the database is unavailable, an error reference is written to hosting logs where possible; no database incident can be guaranteed during that outage.
+
+The account timeline shows up to 50 recent events; notes and search results paginate. Tracking begins with events the application actually records; it cannot reconstruct missing historical activity. Maintenance mode retains the existing admin-only access rule, including Support Center.
+
+## Protected API-key reveal
+
+**Support → Integrations** reports whether credentials are configured. Admins see masked values and a **Reveal key** button. Every reveal opens a dialog and requires the current admin password. The value is sent only after verification, never embedded in the original HTML. Account Managers see readiness only.
+
+The allowlist is `ACUITY_API_KEY`, `STRIPE_SECRET_KEY`, and `STRIPE_WEBHOOK_SECRET`. Values remain in hosting environment settings; no new secret database or key-editing UI is added. `SECRET_KEY`, database URLs/passwords, user password hashes, and arbitrary environment variables cannot be revealed through this endpoint. User passwords remain one-way hashes and are never recoverable or displayed.
+
+Reveal responses are non-cacheable. The value is removed from the dialog after 30 seconds, on close, tab hiding, or window blur. No key is saved to browser storage or written to audit records. A successful reveal records actor, credential name, and timestamp. Each reveal requires fresh password confirmation; five failed support-password confirmations within 15 minutes temporarily block additional confirmations for that staff account, across sessions. CSRF checks apply. Authorized admins can still inspect or copy a revealed response; automatic hiding is a display safeguard, not revocation of access to a secret already revealed.
+
+## Interface updates
+
+The existing navigation and booking flow remain. Navy/gold styling now includes softer cards, clear active-page navigation, responsive layouts, dismissible notices, copy buttons for account/reset/error references, **Ctrl/Cmd+K quick navigation**, and an optional device-based color theme. Existing light/dark preferences continue working. Mentor profile photos now use a square frame; small navigation avatars remain round. Dialogs support keyboard navigation and Escape, and animation respects reduced-motion settings.
+
+## Deploy or upgrade
+
+Read `DEPLOYMENT.md`. Back up the database, replace the **marketplace** repository files, preserve your private environment settings, install dependencies, and run:
+
+```bash
+flask --app run init-db
+```
+
+This creates new tables, migrates the legacy staff role once, and updates future service allocation once on the original v0.3 migration. The v0.4 migration adds support tables and selects Acuity only if no provider was previously selected; it preserves existing booking mode and fee settings. It does not drop existing tables or rewrite passwords or booking snapshots. Both the Render configuration and Procfile run this before Gunicorn. Run migrations once per release when using multiple service instances.
+
+## Local development
+
+Windows: run `start-windows.bat`, then create an administrator in a second terminal:
 
 ```powershell
 .venv\Scripts\python.exe -m flask --app run create-admin
 ```
 
-The command prompts for your name, email, and password (at least 12 characters). No shared/default administrator password is shipped.
-
-For an onboarding team member:
-
-```powershell
-.venv\Scripts\python.exe -m flask --app run create-onboarding-user
-```
-
-Each staff member should have their own account. Staff accounts access the team workspace, mentor profiles, services, and archived test reservation records. There is no team-account management UI in this release; creation is through the authorized CLI.
-
-## Existing v0.1 installation
-
-Back up your database first. Replace the application source with v0.2, keeping your private `.env` and existing database. Run:
-
-```bash
-pip install -r requirements.txt
-flask --app run init-db
-```
-
-The upgrade adds three tables for profile details, invitations, and activity history. It does not change or drop existing v0.1 columns. Existing users, passwords, mentor profiles, services, and bookings remain. The Windows launcher performs this initialization; the included Render start command does as well.
-
-Existing approved real profiles stay published. Fictional profiles marked in the database are hidden from public listings and direct public profile URLs, but remain available to staff for cleanup. New publication decisions require the readiness checklist. Editing an approved profile to remove required information/checklist items returns it to review. Existing mentors keep their sign-in and gain price controls.
-
-## The onboarding workflow
-
-1. **Application:** The mentor applies through the existing portal. Review their application there using your current process. Data does not import automatically.
-2. **Create draft:** In Workspace, select **Create mentor profile**. Enter public display name, account email, primary lane, and professional title. Save incomplete drafts as work progresses.
-3. **Build profile:** Complete biography, credentials, education, years of experience, specialties, languages, timezone, and approach to sessions. Contact phone, application reference, owner, and team notes are private.
-4. **Prepare services:** Add mentor-specific offerings, duration, starting price in USD, TTBG commission percentage, and optional Acuity IDs. Agree on the starting price with the mentor; they can change it after activation.
-5. **Track readiness:** Record application review, credential review, agreement receipt, orientation completion, and consent to publish. These are team attestations, not automatic verification. A complete biography, experience, and an active service are also required to publish.
-6. **Handoff account:** Generate an activation link from the overview, copy it, and send it privately through your usual onboarding channel. The app does not send it for you. The mentor sets their password and can review their profile and update rates.
-7. **Publish:** Choose Approved in the review decision. The profile appears in the public directory once all readiness checks pass.
-8. **Manage:** Update the profile, suspend access, or delete it through the controls. Suspend/delete require a reason and typed confirmation of the mentor’s name. Existing reservations are not automatically cancelled.
-
-An existing student email can be linked only after the team confirms that the account belongs to the approved applicant. It keeps its existing password and does not receive an activation link. Staff and existing mentor emails cannot be reused to create another profile.
-
-## Mentor pricing
-
-Mentors open **My dashboard → Set my price**. Amounts are USD, from $1.00 to $1,000.00 per service. Commission remains controlled by the team. Saving a price changes future reservations only and records the change in the team activity history. The marketplace does not collect funds or accrue earnings.
-
-## macOS / Linux
+macOS / Linux:
 
 ```bash
 python3 -m venv .venv
@@ -76,53 +133,20 @@ flask --app run create-admin
 python run.py
 ```
 
-## Configuration and account recovery
-
-See `.env.example`. Do not commit `.env`, local databases, or `.venv`. Use a dedicated persistent external database on Render. Set `COOKIE_SECURE=true` under HTTPS. Set `PUBLIC_BASE_URL` to your hosted origin so activation links use the intended domain. Leave it empty for local development.
-
-Reservation simulation cannot be enabled through hosting environment variables. The existing production database schema and stored status values remain compatible; no column rename or data deletion is required.
-
-For an authorized password reset:
+CLI account recovery remains available:
 
 ```bash
 flask --app run reset-password
+flask --app run create-account-manager
 ```
 
-A reset revokes outstanding activation links. Suspension/deletion still blocks access regardless of password changes.
+The older `create-onboarding-user` command remains as an alias that creates an Account Manager. Keep `.env`, credentials, database files, and virtual environments out of Git.
 
-## Current boundaries
-
-- Acuity IDs are stored only. The marketplace does not fetch availability, schedule appointments, process payments, or calculate earned balances. Archived test records retain their original values and are not counted as revenue.
-- No automatic portal import, help desk ticket creation, emails, file uploads, photo uploads, checkout, refunds, or payouts.
-- All staff share workspace visibility; assigned owners help coordination and do not restrict access.
-- A mentor account cannot make new student reservations through this marketplace. Existing student booking records remain accessible by their detail links after conversion.
-- Deletion is recoverable removal, not permanent personal-data erasure. Reservations and audit records remain for continuity.
-- Database upgrade has been tested on SQLite. Actual Render and PlanetScale connections were not accessed or deployed.
-
-## Tests
+## Checks
 
 ```bash
 pip install pytest
 python -m pytest -q
 ```
 
-See `VALIDATION.md` for checks, `DEPLOYMENT.md` for hosting, and `ARCHITECTURE.md` for the model and integration scope.
-
-## v0.2.1 — light and dark mode
-
-Use the **Light mode / Dark mode** selector in the top bar on any page. The existing light appearance is the default, including on devices set to dark mode. Dark mode uses deep navy surfaces, gold actions, readable light text, and a white logo tile that preserves the original logo.
-
-The selection is remembered in this browser’s local storage across pages and visits, and syncs across open tabs on the same origin. It is a browser preference, not an account setting. If storage is blocked, switching still works for the current page; if JavaScript is disabled, the app remains in light mode and hides the selector.
-
-Upgrade from v0.2 by replacing the application files while keeping your `.env` and database. No database schema or dependency changes are required for v0.2.1.
-
-## v0.2.2 production presentation
-
-- Public navigation, account pages, dashboard copy, health version, and hosting service name use the marketplace branding.
-- Fictional profiles are excluded from public views and published mentor counts. Existing records are retained.
-- Financial simulations are removed from dashboards. Previous test reservations are labeled as historical records.
-- The fictional-profile seeding command and obsolete screenshots are removed.
-- Scheduling links no longer advertise generated availability. Existing booking URLs explain how to contact TTBG; reservation POST requests are blocked in normal operation.
-- Accounts, passwords, database tables, branding assets, mentor onboarding, pricing controls, and theme selection are preserved.
-
-Use the existing marketplace repository and hosting service when deploying an update. No live deployment has been performed as part of this source update.
+Read `VALIDATION.md` for the checks performed and their limits. No live deployment is included in this source update.
