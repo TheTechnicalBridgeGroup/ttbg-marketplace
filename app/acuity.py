@@ -42,7 +42,7 @@ def api_request(method,path,params=None,data=None):
         return mock_request(method,path,params or {},data)
     auth=base64.b64encode((str(current_app.config['ACUITY_USER_ID'])+':'+current_app.config['ACUITY_API_KEY']).encode()).decode()
     url='https://acuityscheduling.com/api/v1/'+path+('?' + urlencode(params) if params else '')
-    headers={'Authorization':'Basic '+auth,'Accept':'application/json','User-Agent':'TTBG-Marketplace/0.6'}
+    headers={'Authorization':'Basic '+auth,'Accept':'application/json','User-Agent':'TTBG-Marketplace/0.6.7'}
     if data is not None:headers['Content-Type']='application/json'
     req=Request(url,data=json.dumps(data).encode() if data is not None else None,headers=headers,method=method)
     try:

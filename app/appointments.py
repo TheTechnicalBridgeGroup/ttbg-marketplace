@@ -143,11 +143,15 @@ def normalize(data):
 def matches_request(values,req):
     return values['calendar_id']==req.calendar_id and values['type_id']==req.type_id and values['starts_at']==req.starts_at and values['email']==req.email
 
+def payment_label(price_cents, paid='no'):
+    if price_cents == 0: return 'no_payment_required'
+    return 'acuity_reported_paid' if paid.lower() in ('yes','true','paid') else 'payment_due'
+
 def new_booking(req,service,student_id):
     split=split_amount(req.price_cents,req.fee_bps)
     b=Booking(student_id=student_id,mentor_id=service.mentor_id,service_id=service.id,service_name=req.service_name,
         start=req.starts_at,duration=req.duration,price_cents=req.price_cents,fee_cents=split['company_cents'],earnings_cents=split['mentor_cents'],
-        status='confirmed',payment_status='payment_due',request_key='acuity:'+req.id,slot_key=None,goals='')
+        status='confirmed',payment_status=payment_label(req.price_cents),request_key='acuity:'+req.id,slot_key=None,goals='')
     db.session.add(b);db.session.flush();return b
 
 def save_snapshot(data,req=None):
@@ -176,7 +180,7 @@ def save_snapshot(data,req=None):
         if changed:item.sync_state='needs_review';b.status='sync_review'
         else:
             b.start=item.starts_at;b.duration=item.duration;b.status='cancelled' if item.cancelled else 'confirmed'
-            b.payment_status='acuity_reported_paid' if item.paid.lower() in ('yes','true','paid') else 'payment_due'
+            b.payment_status=payment_label(b.price_cents,item.paid)
             if original and (item.cancelled or item.starts_at!=original.starts_at):original.dedupe_key=None
     if req and item.booking:log('Acuity appointment confirmed',f'booking:{item.booking.id}',f'Acuity ID {item.provider_id}; {acuity.mode()}.',actor_id=req.user_id)
     db.session.flush();return item
@@ -343,7 +347,7 @@ def inspect(aid):
                 req=AcuityRequest(id=secrets.token_hex(16),user_id=u.id,service_id=service.id,scope=acuity.scope(),calendar_id=item.calendar_id,type_id=item.type_id,
                     starts_at=item.starts_at,timezone=item.timezone,email=u.email,service_name=service.name,price_cents=item.price_cents,duration=item.duration,fee_bps=settings().fee_bps,state='confirmed')
                 db.session.add(req);db.session.flush();item.booking=new_booking(req,service,u.id);item.request_id=req.id
-                item.booking.status='cancelled' if item.cancelled else 'confirmed';item.booking.payment_status='acuity_reported_paid' if item.paid.lower() in ('yes','true','paid') else 'payment_due';item.sync_state='synced'
+                item.booking.status='cancelled' if item.cancelled else 'confirmed';item.booking.payment_status=payment_label(item.booking.price_cents,item.paid);item.sync_state='synced'
                 log('External Acuity appointment linked',f'booking:{item.booking.id}',form.reason.data.strip());db.session.commit()
                 flash('Appointment linked. The student and mentor can see it in their dashboards.','success');return redirect(url_for('appointments.inspect',aid=aid))
     return render_template('appointments/inspect.html',item=item,form=form)

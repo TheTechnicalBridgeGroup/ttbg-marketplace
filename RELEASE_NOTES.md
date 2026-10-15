@@ -1,3 +1,14 @@
+# v0.6.7 — Acuity service import and FREE consultations
+
+- Admins and Account Managers can fetch an appointment type from Services & pricing, review and edit its name/description, and explicitly save the service and Acuity mapping.
+- Validates the saved mentor calendar, active one-to-one type, supported price/duration, and current provider data. Existing mentor/type matches become explicit updates with side-by-side comparisons; conflicting mappings stop the import.
+- Signed 15-minute previews reject stale service/source changes, cross-account reuse, and repeated creation submissions. Successful imports/updates are audited.
+- Zero-priced consultations import and save correctly and show FREE. Zero-priced confirmed appointments are recorded as No payment required; monetary allocation fields remain numeric.
+- Manual service duration accepts 1–1,440 whole minutes. Local mock type 202 provides a free 30-minute consultation alongside type 201.
+- Existing bookings, accounts, credentials, and platform booking mode are preserved. No new dependency or schema migration is required. Health/version and asset references now identify v0.6.7.
+
+See ACUITY_IMPORT_V067.md. Live Acuity account testing and deployment remain separate from the included local verification.
+
 # v0.6.0 — Confirmed Acuity appointments
 
 - Native TTBG confirmation form, server-owned quotes/mappings, normal Acuity availability and intake validation, and saved provider IDs/booking/allocation snapshots.

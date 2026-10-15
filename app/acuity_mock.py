@@ -10,6 +10,12 @@ from .acuity import AcuityError
 
 CALENDAR_ID=101
 TYPE_ID=201
+TYPES={
+    '201': {'id':201,'name':'Local mentoring session','description':'<p>A focused session with your TTBG mentor.</p>',
+            'private':False,'active':True,'type':'service','duration':60,'price':'100.00','calendarIDs':[101]},
+    '202': {'id':202,'name':'Free introductory consultation','description':'Meet your mentor and discuss your goals.',
+            'private':False,'active':True,'type':'service','duration':30,'price':'0.00','calendarIDs':[101]},
+}
 
 def config():
     obj=db.session.get(AcuityMockConfig,1)
@@ -35,29 +41,30 @@ def mock_request(method,path,params,data):
     cfg=config()
     if method=='GET' and path=='me':return {'id':1,'name':'TTBG local scheduling','currency':'USD','timezone':'America/New_York'}
     if method=='GET' and path=='calendars':return [{'id':101,'name':'Local TTBG mentor','timezone':'America/New_York'}]
-    if method=='GET' and path=='appointment-types':return [{'id':201,'name':'Local mentoring session','active':True,'type':'service','duration':60,'price':'100.00','calendarIDs':[101]}]
+    if method=='GET' and path=='appointment-types':return deepcopy(list(TYPES.values()))
     if method=='GET' and path=='forms':return [{'id':301,'name':'Session preparation','hidden':False,'appointmentTypeIDs':[201],
         'fields':[{'id':401,'name':'What would you like to focus on?','type':'textarea','required':True,'options':[]}]}]
     if path.startswith('availability/'):
-        if str(params.get('calendarID'))!='101' or str(params.get('appointmentTypeID'))!='201':raise AcuityError('invalid_calendar',True)
+        if str(params.get('calendarID'))!='101' or str(params.get('appointmentTypeID')) not in TYPES:raise AcuityError('invalid_calendar',True)
         zone=params.get('timezone','America/New_York')
         if path=='availability/times':return times(date.fromisoformat(params['date']),zone)
         first=date.fromisoformat(params['month']+'-01')
         return [{'date':date(first.year,first.month,d).isoformat()} for d in range(1,calendar.monthrange(first.year,first.month)[1]+1) if times(date(first.year,first.month,d),zone)]
     if method=='POST' and path=='appointments':
         if cfg.scenario=='unavailable':raise AcuityError('not_available',True)
-        if str(data.get('calendarID'))!='101' or str(data.get('appointmentTypeID'))!='201':raise AcuityError('invalid_calendar',True)
+        if str(data.get('calendarID'))!='101' or str(data.get('appointmentTypeID')) not in TYPES:raise AcuityError('invalid_calendar',True)
+        kind=TYPES[str(data['appointmentTypeID'])]
         stamp=datetime.fromisoformat(data['datetime']);zone=data['timezone']
         if stamp.tzinfo is None:raise AcuityError('invalid_datetime',True)
         choices=times(stamp.astimezone(ZoneInfo(zone)).date(),zone)
         if not any(datetime.fromisoformat(c['time'])==stamp for c in choices):raise AcuityError('not_available',True)
-        if not any(str(f['id'])=='401' and str(f['value']).strip() for f in data.get('fields',[])):raise AcuityError('required_field',True)
+        if kind['id']==201 and not any(str(f['id'])=='401' and str(f['value']).strip() for f in data.get('fields',[])):raise AcuityError('required_field',True)
         item=AcuityMockAppointment(slot='101:'+stamp.astimezone(timezone.utc).isoformat(),payload={})
         db.session.add(item)
         try:db.session.flush()
         except IntegrityError:db.session.rollback();raise AcuityError('not_available',True) from None
-        item.payload=dict(id=item.id,calendarID=101,appointmentTypeID=201,datetime=stamp.isoformat(),duration='60',
-            timezone=zone,firstName=data['firstName'],lastName=data['lastName'],email=data['email'],price='100.00',paid='no',
+        item.payload=dict(id=item.id,calendarID=101,appointmentTypeID=kind['id'],datetime=stamp.isoformat(),duration=str(kind['duration']),
+            timezone=zone,firstName=data['firstName'],lastName=data['lastName'],email=data['email'],price=kind['price'],paid='no',
             canceled=False,location='Local practice session — no real meeting',forms=[])
         db.session.commit()
         if cfg.scenario=='timeout_after_create':raise AcuityError('connection_failed')

@@ -97,3 +97,9 @@ Webhook failures return HTTP 500 and retain a pending job. The sync-acuity CLI r
 Unknown external appointments stay unlinked and staff-only. No email-based automatic account creation or reassignment occurs. Staff must authenticate and explicitly link a verified student and matched service. Reschedules/cancellations update schedule state. Client/mapping/price/duration changes require review. Original financial allocation snapshots stay intact. Already-linked account deletion sets an identity_removed flag so subsequent fetches do not restore names/emails/locations. The app does not cancel external appointments when deleting accounts.
 
 AcuityMockAppointment and AcuityMockConfig provide fixed local calendar 101/type 201, persistent simulated provider state, scenario switches, and correctly signed local webhook delivery. Dummy mode requires a separate marketplace-mock.db and cannot start on Render or with a public origin. Live mode refuses that database filename. Simulator behavior cannot validate live account settings or plan entitlement.
+
+## v0.6.7 service imports
+
+`service_import.py` adds a staff-only read/preview/confirm workflow using the existing Acuity transport. Signed expiring previews bind actor, mentor, provider scope, source fingerprint, and existing service/mapping state. Confirmation rereads Acuity, locks platform settings, mentor, and service rows on transactional databases, rechecks state, and atomically writes both mapping fields with the service and audit records. SQLite remains the local practice/test database; multi-worker database locking behavior needs the deployment database. No new table or background synchronization job is added.
+
+The `service_price` template filter displays FREE only for zero-valued service/session prices; `money` retains numeric financial formatting. Acuity creation and synchronization classify zero-price booking snapshots as `no_payment_required`.

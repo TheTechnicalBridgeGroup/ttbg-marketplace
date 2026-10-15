@@ -1,4 +1,4 @@
-# Deploy TTBG Marketplace v0.6.0
+# Deploy TTBG Marketplace v0.6.7
 
 Update the existing **ttbg-marketplace** repository and Render service. Do not upload the mentor portal or help desk code into this repository.
 

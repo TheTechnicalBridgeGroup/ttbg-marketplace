@@ -116,7 +116,7 @@ def test_v01_database_additive_upgrade(tmp_path):
 
 def test_invalid_prices_are_rejected(app):
     c=app.test_client();login(c,'mentor')
-    for price in ['-1','0','1001','NaN','Infinity','text']:
+    for price in ['-1','','1001','NaN','Infinity','text']:
         assert c.post('/mentor/services/1/price',data={'price':price}).status_code==200
     with app.app_context():assert db.session.get(Service,1).price_cents==10000
 

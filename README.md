@@ -1,6 +1,6 @@
-# TTBG Marketplace — v0.6.0
+# TTBG Marketplace — v0.6.7
 
-TTBG v0.6.0 adds **confirmed Acuity appointments and persistent synchronization**, with an isolated dummy-key practice mode. It retains the v0.5 account lifecycle, email verification, Turnstile, shared documentation, help guide, and TTBG navy/gold interface. Start with **ACUITY_V06_SETUP.md** for local and production instructions. Appointment confirmation is implemented; payment collection and automatic Stripe payouts remain separate.
+TTBG v0.6.7 adds **Import from Acuity** under Services & pricing, with reviewed previews, mentor-calendar validation, and explicit updates for existing mappings. Zero-priced consultations now display **FREE**. Read **ACUITY_IMPORT_V067.md** for the walkthrough. Confirmed Acuity appointments, persistent synchronization, and isolated dummy-key practice mode remain available. It retains the v0.5 account lifecycle, email verification, Turnstile, shared documentation, help guide, and TTBG navy/gold interface. Start with **ACUITY_V06_SETUP.md** for local and production instructions. Appointment confirmation is implemented; payment collection and automatic Stripe payouts remain separate.
 
 ## Role hierarchy
 
@@ -16,6 +16,7 @@ TTBG v0.6.0 adds **confirmed Acuity appointments and persistent synchronization*
 | Approve/reject/remove published mentor pictures | Yes | Yes | No | No |
 | Platform settings, commission, maintenance, metadata | Yes | No | No | No |
 | Database explorer, CSV pages, statistics, audit, diagnostics | Yes | No | No | No |
+| Import and update services from an Acuity Appointment Type ID | Yes | Yes | No | No |
 | Scheduling URL/event references | Yes | Yes | View own service prices | No |
 | Stripe connected-account references | Yes | No | No | No |
 | Browse public mentors and provider booking links | Yes | Yes | Yes | Yes |

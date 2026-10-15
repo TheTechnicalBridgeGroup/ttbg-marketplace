@@ -200,7 +200,7 @@ def service_scheduling(sid):
             item=s.scheduling or ServiceScheduling(service=s);db.session.add(item)
             item.provider=form.provider.data;item.event_type_id=(form.event_type_id.data or '').strip();item.booking_url=value
             log('Scheduling mapping updated',f'service:{sid}',f'Provider: {item.provider}');db.session.commit()
-            flash('Scheduling mapping saved. Acuity availability uses the appointment type and mentor calendar IDs. Appointment and payment synchronization are not enabled.','success')
+            flash('Scheduling mapping saved. Acuity uses the appointment type and mentor calendar IDs. Confirmed bookings and synchronization depend on your platform integration settings; payments are handled separately.','success')
             return redirect(url_for('main.review',mid=s.mentor_id))
     return render_template('scheduling.html',form=form,s=s)
 

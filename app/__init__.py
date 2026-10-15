@@ -97,6 +97,8 @@ def create_app(config=None):
     app.register_blueprint(knowledge_bp)
     from .appointments import bp as appointments_bp,webhook
     app.register_blueprint(appointments_bp)
+    from .service_import import bp as service_import_bp
+    app.register_blueprint(service_import_bp)
     app.extensions['csrf'].exempt(webhook)
     from .acuity_commands import register as register_acuity_commands
     register_acuity_commands(app)
@@ -111,6 +113,8 @@ def create_app(config=None):
         return {'acuity_mode':app.config['ACUITY_MODE'],'help_settings':help_settings(),'turnstile_enabled':turnstile_enabled(),'turnstile_site_key':app.config.get('TURNSTILE_SITE_KEY',''),'email_label':email_label,'mail_ready':mail_ready(),'turnstile_ready':turnstile_ready(),'action_form':EmptyForm(formdata=None), 'platform_settings':settings(), 'role_labels':ROLE_LABELS, 'scheduler_link':scheduler_link, 'test_reservations_enabled':app.testing and app.config['TEST_RESERVATIONS_ENABLED']}
     @app.template_filter('money')
     def money(value): return f'${value/100:,.2f}'
+    @app.template_filter('service_price')
+    def service_price(value): return 'FREE' if value == 0 else money(value)
     @app.after_request
     def headers(response):
         response.headers['X-Content-Type-Options']='nosniff'

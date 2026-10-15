@@ -1,0 +1,44 @@
+{% extends 'base.html' %}
+{% from 'macros.html' import field %}
+{% block title %}Import from Acuity{% endblock %}
+{% block content %}
+<div class="container section import-workspace">
+  <a class="back" href="{{ url_for('main.review',mid=m.id) }}">← {{ m.user.name }} · Services & pricing</a>
+  <div class="section-heading"><div><p class="eyebrow">CONNECTED SERVICE SETUP</p><h1>Import from Acuity.</h1><p class="lede">Bring your mentor’s offering into TTBG with the details already entered in Acuity.</p></div><a class="button outline" href="{{ url_for('main.service_edit',mid=m.id) }}">Add manually</a></div>
+  <ol class="booking-steps" aria-label="Import progress"><li class="{{ 'active' if not form else '' }}">1 · Find appointment type</li><li class="{{ 'active' if form else '' }}">2 · Review & save</li></ol>
+  {% if error %}<div class="notice" role="alert">{{ error }}</div>{% endif %}
+  {% if not form %}
+  <section class="panel import-entry"><p class="eyebrow">ACUITY CONNECTION</p><h2>One ID. A ready-to-review service.</h2><p>Enter the <strong>Appointment Type ID</strong> from your connected Acuity account. We’ll check that it belongs to this mentor’s calendar before showing a preview.</p>
+    <div class="booking-meta"><span class="muted">Mentor’s saved Calendar ID</span><strong>{{ m.acuity_calendar_id or 'Not configured' }}</strong></div>
+    <form method="post">{{ fetch.hidden_tag() }}<input type="hidden" name="operation" value="fetch">{{ field(fetch.type_id) }}<button class="button">Fetch appointment type</button></form>
+    <p class="muted top-gap">This reads Acuity without changing it. Nothing is added to TTBG until you confirm. If the calendar is missing, save it under <a href="{{ url_for('main.review',mid=m.id) }}">Review & publish</a>.</p>
+  </section>
+  {% else %}
+  <div class="import-layout"><section class="panel">
+    <p class="eyebrow">{{ 'EXISTING SERVICE FOUND' if existing else 'APPOINTMENT TYPE FOUND' }}</p>
+    <h2>{{ 'Review this service update.' if existing else 'Review your new service.' }}</h2>
+    <p>{% if existing %}This mentor already has a service connected to type <strong>{{ item.type_id }}</strong>. Confirm below to update that service. A duplicate will not be created.{% else %}Type <strong>{{ item.type_id }}</strong> is available on calendar <strong>{{ item.calendar_id }}</strong>. Confirm below to add it to {{ m.user.name }}’s services.{% endif %}</p>
+    {% if item.private %}<p class="notice">This appointment type is private in Acuity. It stays private there. Only enable the active checkbox if you intend to list it on TTBG.</p>{% endif %}
+    {% if item.shortened %}<p class="notice">The Acuity text was shortened to fit TTBG’s limits: 120 characters for the name and 1,000 for the description. Review the editable text before saving.</p>{% endif %}
+    {% if existing %}
+    <div class="table-wrap"><table class="import-comparison"><caption>Current TTBG values compared with Acuity</caption><thead><tr><th scope="col">Detail</th><th scope="col">Current TTBG</th><th scope="col">From Acuity</th></tr></thead><tbody>
+      <tr><th scope="row">Name</th><td>{{ existing.name }}</td><td>{{ item.name }}</td></tr>
+      <tr><th scope="row">Description</th><td class="preline">{{ existing.description or 'Not provided' }}</td><td class="preline">{{ item.description or 'Not provided' }}</td></tr>
+      <tr><th scope="row">Price (USD)</th><td>{{ existing.price_cents|service_price }}</td><td>{{ item.price_cents|service_price }}</td></tr>
+      <tr><th scope="row">Duration</th><td>{{ existing.duration }} minutes</td><td>{{ item.duration }} minutes</td></tr>
+      <tr><th scope="row">Scheduling</th><td>{{ existing.scheduling.provider if existing.scheduling else 'Legacy Acuity mapping' }}<br>Service type: {{ existing.acuity_type_id or 'Not set' }}{% if existing.scheduling %}<br>Scheduling type: {{ existing.scheduling.event_type_id or 'Not set' }}{% endif %}</td><td>Acuity · type {{ item.type_id }}</td></tr>
+    </tbody></table></div>
+    {% if existing.scheduling and existing.scheduling.provider != 'acuity' %}<p class="notice">Saving replaces this service’s scheduling provider with Acuity and removes its previous hosted booking link.</p>{% endif %}
+    {% endif %}
+    <form method="post" class="top-gap">{{ form.hidden_tag() }}<input type="hidden" name="operation" value="save">
+      {{ field(form.name) }}{{ field(form.description) }}
+      <p class="muted">Name and description can be edited before saving. Acuity formatting is converted to plain text; images and attachments are not copied.</p>
+      <div class="summary-grid booking-meta"><div><span>Session price (USD)</span><strong>{{ item.price_cents|service_price }}</strong></div><div><span>Duration</span><strong>{{ item.duration }} minutes</strong></div></div>
+      <p class="muted">Price and duration stay matched to Acuity for confirmed bookings. To change them, edit the appointment type in Acuity and fetch it again.</p>
+      {{ field(form.active) }}{{ field(form.confirm) }}
+      <div class="action-buttons"><button class="button">{{ 'Confirm service update' if existing else 'Confirm import' }}</button><a class="button outline" href="{{ url_for('service_import.import_service',mid=m.id) }}">Start again</a></div>
+    </form>
+  </section><aside class="panel import-summary"><p class="eyebrow">IMPORT DETAILS</p><h2>{{ m.user.name }}</h2><dl><dt>Calendar ID</dt><dd>{{ item.calendar_id }}</dd><dt>Appointment Type ID</dt><dd>{{ item.type_id }}</dd><dt>TTBG share</dt><dd>{{ '%g'|format((existing.fee_bps if existing else platform_settings.fee_bps)/100) }}%</dd><dt>Visibility after saving</dt><dd>Controlled by the active checkbox and mentor publication status.</dd></dl><hr><p>Existing appointments retain their original prices and commission amounts.</p><p class="muted">This is a one-time import. Later changes in Acuity can be reviewed by importing the same type again. No appointment or payment is created by importing a service.</p></aside></div>
+  {% endif %}
+</div>
+{% endblock %}

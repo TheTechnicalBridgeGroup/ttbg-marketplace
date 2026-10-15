@@ -1,8 +1,20 @@
-# TTBG Marketplace v0.6.0 validation
+# TTBG Marketplace v0.6.7 validation
 
-Validated locally on October 14, 2026. **All 109 automated tests passed (70.33 seconds).**
+Validated locally on October 15, 2026. **138 automated tests verified: 109 retained tests and 29 v0.6.7 tests.** The retained tests passed in the full regression run. The v0.6.7 suite passed on its focused rerun after correcting a test to follow the confirmation redirect.
 
 ## Coverage
+
+### v0.6.7 imports and free consultations
+
+- Two-step preview/save with actual mock-provider reads; preview alone leaves services unchanged. Maps both service type fields consistently and permits nonstandard whole-minute durations such as 45 minutes.
+- Admin/Account Manager access, mentor/student denial, anonymous redirects, CSRF, suspended mentor protection, rate limits, and provider failure redaction.
+- Per-mentor duplicate detection across legacy and modern mappings, multiple-match rejection, shared types across mentors, explicit updates, and repeated-submit rejection.
+- Signed preview expiry, tamper protection, actor/mentor/provider-scope binding, stale source/service/calendar/commission/mapping rejection, and concurrent-state conflict detection. This does not constitute multi-worker MySQL/PostgreSQL load testing.
+- Current-versus-imported review, missing descriptions, HTML-to-text conversion, truncation warnings, private-type visibility defaults, checkbox validation, and external scheduling-link replacement only on confirmation.
+- Unsupported type, inactive type, invalid ID, calendar mismatch, negative/nonfinite/out-of-range price, and invalid duration rejection without service writes.
+- Existing booking amounts and commission snapshots retained across a confirmed service update.
+- Zero-priced imports, manual service creation, mentor price changes, FREE presentation on listings/profile/booking screens, unchanged numeric money formatting, and complete mock free booking plus signed synchronization using No payment required.
+
 
 ### v0.6 Acuity booking and synchronization
 
@@ -32,7 +44,7 @@ Validated locally on October 14, 2026. **All 109 automated tests passed (70.33 s
 ## Additional checks
 
 - Python compilation and JavaScript syntax checks for booking.js, help.js, verification.js, ui.js, and theme.js.
-- All 31 table definitions compile for PostgreSQL and MySQL. Workflow tests use SQLite with foreign keys enabled; no live PostgreSQL/MySQL migration was performed.
+- The 31 existing table definitions were unchanged by v0.6.7; their PostgreSQL/MySQL compilation checks from v0.6 remain applicable. Workflow tests use SQLite with foreign keys enabled; no live PostgreSQL/MySQL migration was performed.
 - Templates rendered through Flask test clients. No new runtime dependencies were added.
 
 ## Practical limits

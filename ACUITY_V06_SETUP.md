@@ -2,9 +2,11 @@
 
 This release implements the six requested pieces: backend Acuity API access, credential configuration, mentor calendar mapping, appointment type mapping, confirmed appointment creation, and saved/synchronized appointments. No live API key is included. The local simulator accepts a dummy key and exercises the same TTBG booking and persistence workflow.
 
+For v0.6.7 service import and FREE consultations, also read **ACUITY_IMPORT_V067.md**. Mock type **202** is a free 30-minute consultation on calendar **101**.
+
 ## Local practice — Windows Command Prompt
 
-Use the extracted **v0.6.0** folder. Keep your production database and credentials separate.
+Use the extracted **v0.6.7** folder. Keep your production database and credentials separate.
 
 If `.venv` already exists, use it. Otherwise:
 

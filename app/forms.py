@@ -1,7 +1,7 @@
 from decimal import Decimal
 from flask_wtf import FlaskForm
 from wtforms import StringField, PasswordField, SelectField, TextAreaField, IntegerField, BooleanField, HiddenField, DecimalField
-from wtforms.validators import DataRequired, Email, Length, EqualTo, NumberRange, Optional, Regexp, StopValidation
+from wtforms.validators import DataRequired, Email, Length, EqualTo, NumberRange, Optional, Regexp, StopValidation, InputRequired
 
 def finite_number(form, field):
     if field.data is not None and not field.data.is_finite():
@@ -28,8 +28,8 @@ class ReviewForm(FlaskForm):
 class ServiceForm(FlaskForm):
     name = StringField('Service name', validators=[DataRequired(),Length(max=120)])
     description = TextAreaField('Description', validators=[Optional(),Length(max=1000)])
-    price = DecimalField('Starting session price (USD)', places=2, validators=[DataRequired(), finite_number, NumberRange(min=Decimal('0'),max=Decimal('1000'))])
-    duration = SelectField('Session length', choices=[(30,'30 minutes'),(60,'60 minutes'),(90,'90 minutes')], coerce=int)
+    price = DecimalField('Starting session price (USD)', places=2, validators=[InputRequired(), finite_number, NumberRange(min=Decimal('0'),max=Decimal('1000'))])
+    duration = IntegerField('Session length (minutes)', default=60, validators=[DataRequired(), NumberRange(min=1,max=1440)])
     fee_percent = DecimalField('TTBG commission (%)', places=2, validators=[finite_number, NumberRange(min=Decimal('0'),max=Decimal('100'))], default=Decimal('20'))
     acuity_type_id = StringField('Acuity appointment type ID (optional)', validators=[Optional(),Regexp(r'^\d{1,20}$',message='Use a numeric appointment type ID.')])
 class BookingForm(FlaskForm):
@@ -75,7 +75,7 @@ class AdminProfileForm(FlaskForm):
     confirm_link = BooleanField('If this email already belongs to a student, I confirm this is the approved applicant and authorize linking their account.')
 
 class MentorPriceForm(FlaskForm):
-    price = DecimalField('Your session price (USD)',places=2,validators=[DataRequired(),finite_number,NumberRange(min=Decimal('1'),max=Decimal('1000'))])
+    price = DecimalField('Your session price (USD)',places=2,validators=[InputRequired(),finite_number,NumberRange(min=Decimal('0'),max=Decimal('1000'))])
 
 class LifecycleForm(FlaskForm):
     action = SelectField('Action',choices=[('suspend','Suspend profile'),('delete','Delete profile'),('restore','Restore to draft')])
