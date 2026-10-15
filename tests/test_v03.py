@@ -162,8 +162,8 @@ def test_upgrade_preserves_identity_history_and_changes_future_split(app):
         assert db.session.get(User,1).role=='admin' and db.session.get(User,1).password_hash==before
         assert db.session.get(Service,1).fee_bps==2000
         assert Booking.query.one().fee_cents==1500
-        assert SchemaRevision.query.count()==4
-        upgrade();assert SchemaRevision.query.count()==4 and User.query.count()==4
+        assert SchemaRevision.query.count()==5
+        upgrade();assert SchemaRevision.query.count()==5 and User.query.count()==4
 
 
 def test_disabled_mentor_hides_photo_profile_and_blocks_existing_session(app):

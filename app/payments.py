@@ -1,0 +1,295 @@
+"""TTBG payment UI, signed webhook inbox, and explicit staff money actions."""
+import json
+import secrets
+from datetime import timedelta
+from flask import Blueprint,abort,current_app,flash,redirect,render_template,request,url_for
+from flask_login import current_user,login_required
+from flask_wtf import FlaskForm
+from sqlalchemy.exc import IntegrityError
+from wtforms import PasswordField,StringField,BooleanField
+from wtforms.validators import DataRequired,Length
+from . import acuity
+from . import stripe_api as stripe
+from . import payment_engine as engine
+from .models import db,User,Mentor,MentorIntegration,PaymentOrder,PaymentOperation,StripeAccount,StripeEvent,StripeDispute,AcuityAppointment,now
+from .forms import EmptyForm
+from .routes import roles
+from .security import log,account_enabled
+from .support import reauthenticate
+from .appointments import write_lock
+
+bp=Blueprint('payments',__name__)
+STAFF=('admin','account_manager')
+class MoneyForm(FlaskForm):
+    password=PasswordField('Your admin password',validators=[DataRequired(),Length(max=128)])
+    reason=StringField('Reason / completion evidence',validators=[DataRequired(),Length(min=8,max=300)])
+    confirm=BooleanField('I verified this action. A refund does not cancel an Acuity appointment.',validators=[DataRequired()])
+class ObjectForm(MoneyForm):
+    object_id=StringField('Verified Stripe object ID',validators=[DataRequired(),Length(max=100)])
+
+class AttachForm(ObjectForm):
+    mentor_id=StringField('TTBG mentor ID',validators=[DataRequired(),Length(max=20)])
+
+def error_message(exc):
+    return exc.code.replace('_',' ') if isinstance(exc,(stripe.StripeError,acuity.AcuityError)) else str(exc)
+def owned(order):
+    if order.request.user_id!=current_user.id and current_user.role not in STAFF and not (current_user.mentor and order.account.mentor_id==current_user.mentor.id):abort(403)
+    if order.scope!=stripe.scope():abort(409)
+def admin_check(form,target):
+    if not form.validate_on_submit():return False
+    if not reauthenticate(form.password.data,target):form.password.errors.append('Password confirmation failed.');return False
+    write_lock();db.session.refresh(current_user._get_current_object())
+    if current_user.role!='admin' or not account_enabled(current_user):abort(403)
+    db.session.commit();return True
+
+@bp.get('/payments')
+@login_required
+def history():
+    if current_user.role in STAFF:return redirect(url_for('payments.center'))
+    q=PaymentOrder.query.filter_by(scope=stripe.scope())
+    if current_user.role=='mentor' and current_user.mentor:q=q.join(StripeAccount).filter(StripeAccount.mentor_id==current_user.mentor.id)
+    else:q=q.join(PaymentOrder.request).filter_by(user_id=current_user.id)
+    page=q.order_by(PaymentOrder.created_at.desc()).paginate(per_page=25,page=request.args.get('page',1,type=int),error_out=False)
+    return render_template('payments/history.html',page=page)
+
+@bp.get('/payments/orders/<oid>')
+@login_required
+def detail(oid):
+    order=db.get_or_404(PaymentOrder,oid);owned(order)
+    if order.request.user_id==current_user.id and order.payment_state=='unpaid' and order.session_id:
+        try:engine.process_order(order)
+        except (engine.PaymentProblem,stripe.StripeError):pass
+    ops=PaymentOperation.query.filter_by(order_id=oid).order_by(PaymentOperation.created_at).all()
+    return render_template('payments/detail.html',o=order,ops=ops,money_form=MoneyForm(),object_form=ObjectForm(prefix='reconcile-'))
+
+@bp.post('/payments/orders/<oid>/refresh')
+@login_required
+def refresh(oid):
+    if not EmptyForm().validate_on_submit():abort(400)
+    order=db.get_or_404(PaymentOrder,oid);owned(order)
+    from .acuity import throttle
+    throttle()
+    try:engine.process_order(order);flash('Payment and appointment status refreshed.','success')
+    except (engine.PaymentProblem,stripe.StripeError) as exc:flash(error_message(exc),'error')
+    return redirect(url_for('payments.detail',oid=oid))
+
+@bp.post('/payments/orders/<oid>/checkout')
+@roles('student')
+def checkout(oid):
+    if not EmptyForm().validate_on_submit():abort(400)
+    order=db.get_or_404(PaymentOrder,oid)
+    if order.request.user_id!=current_user.id:abort(403)
+    engine.check_scope(order)
+    if not engine.enabled():abort(409)
+    try:
+        engine.refresh_payment(order)
+        if order.payment_state!='unpaid' or not order.checkout_url:raise engine.PaymentProblem('Checkout is no longer available. Review the saved status.')
+        target=stripe.redirect_url(order.checkout_url,'checkout')
+        response=redirect(target,303);response.headers['Referrer-Policy']='no-referrer';return response
+    except (stripe.StripeError,engine.PaymentProblem,acuity.AcuityError) as exc:flash(error_message(exc),'error');return redirect(url_for('payments.detail',oid=oid))
+
+@bp.route('/payments/connect',methods=['GET','POST'])
+@roles('mentor')
+def connect():
+    if not current_user.mentor:abort(403)
+    row=engine.account_for(current_user.mentor.id);db.session.commit()
+    form=EmptyForm()
+    if form.validate_on_submit():
+        from .acuity import throttle
+        throttle()
+        try:
+            stripe.writable()
+            if not row.account_id:
+                legacy=current_user.mentor.integration
+                if legacy and legacy.stripe_account_id:raise engine.PaymentProblem('An existing Stripe reference needs Admin verification in Support → Payments before onboarding. Ask an Admin to link the correct account for this mode.')
+                op=engine.operation('account','account:'+str(row.id),{'country':'US','controller':{'fees':{'payer':'application'},'losses':{'payments':'application'},
+                    'requirement_collection':'stripe','stripe_dashboard':{'type':'express'}},'capabilities':{'transfers':{'requested':True}},
+                    'metadata':{'ttbg_mentor':str(current_user.mentor.id)},'business_profile':{'product_description':'Mentoring and tutoring sessions through TTBG'}},'accounts',account=row,retry=True)
+                engine.execute(op)
+            engine.refresh_account(row)
+            params={'account':row.account_id,'type':'account_onboarding','return_url':stripe.origin()+'/payments/connect/return','refresh_url':stripe.origin()+'/payments/connect/return'}
+            op=engine.operation('account_link','link:'+secrets.token_hex(16),params,'account_links',account=row)
+            data=engine.execute(op)
+            if stripe.mode()=='mock':flash('Local account created. Use Mark local account ready below to simulate completed onboarding.','success');return redirect(url_for('payments.connect'))
+            target=stripe.redirect_url(data.get('url'),'onboarding');response=redirect(target,303);response.headers['Referrer-Policy']='no-referrer';return response
+        except (stripe.StripeError,engine.PaymentProblem,acuity.AcuityError) as exc:flash(error_message(exc),'error')
+    return render_template('payments/connect.html',account=row,form=form)
+
+@bp.get('/payments/connect/return')
+@roles('mentor')
+def connect_return():
+    row=engine.account_for(current_user.mentor.id)
+    try:engine.refresh_account(row);flash('Stripe readiness checked. Returning from onboarding does not by itself confirm approval.','success')
+    except (stripe.StripeError,engine.PaymentProblem,acuity.AcuityError) as exc:flash(error_message(exc),'error')
+    return redirect(url_for('payments.connect'))
+
+@bp.post('/payments/connect/refresh')
+@roles('mentor')
+def connect_refresh():
+    if not EmptyForm().validate_on_submit():abort(400)
+    return connect_return()
+
+@bp.get('/support/payments')
+@roles(*STAFF)
+def center():
+    page=PaymentOrder.query.filter_by(scope=stripe.scope()).order_by(PaymentOrder.created_at.desc()).paginate(per_page=25,page=request.args.get('page',1,type=int),error_out=False)
+    accounts=StripeAccount.query.filter_by(scope=stripe.scope()).order_by(StripeAccount.id.desc()).limit(100).all()
+    pending=StripeEvent.query.filter_by(scope=stripe.scope(),pending=True).count()
+    ops=PaymentOperation.query.filter(PaymentOperation.scope==stripe.scope(),PaymentOperation.state.in_(['uncertain','manual_review','rejected','running'])).order_by(PaymentOperation.created_at).limit(30).all()
+    return render_template('payments/center.html',page=page,accounts=accounts,pending=pending,ops=ops,object_form=ObjectForm(prefix='reconcile-'),attach_form=AttachForm(prefix='attach-'))
+
+@bp.post('/support/payments/check')
+@roles('admin')
+def check():
+    if not EmptyForm().validate_on_submit():abort(400)
+    try:
+        a=stripe.api('GET','account')
+        if a.get('country')!='US' or a.get('default_currency')!='usd':raise engine.PaymentProblem('This release requires a US Stripe platform settling in USD.')
+        log('Stripe connection checked','payments','Account and country/currency verified.');db.session.commit();flash('Stripe account verified. Mentor onboarding and webhook delivery still require testing.','success')
+    except (stripe.StripeError,engine.PaymentProblem,acuity.AcuityError) as exc:flash(error_message(exc),'error')
+    return redirect(url_for('payments.center'))
+
+@bp.post('/payments/orders/<oid>/complete')
+@roles('mentor')
+def complete(oid):
+    if not EmptyForm().validate_on_submit():abort(400)
+    order=db.get_or_404(PaymentOrder,oid);owned(order);b=order.booking
+    if order.account.mentor_id!=current_user.mentor.id:abort(403)
+    if not b or b.status!='confirmed' or b.start+timedelta(minutes=b.duration)>now():abort(409)
+    order.completion_reported_at=now();log('Session completion reported','payment:'+oid,'Mentor submitted completion for admin review.');db.session.commit()
+    flash('Completion submitted for Admin review. No funds were transferred.','success');return redirect(url_for('payments.detail',oid=oid))
+
+@bp.post('/support/payments/<oid>/<action>')
+@roles('admin')
+def money_action(oid,action):
+    if action not in ('approve_completion','transfer','refund','retry_refund','close_failed','recover_transfer','clear_review'):abort(404)
+    order=db.get_or_404(PaymentOrder,oid);engine.check_scope(order);form=MoneyForm()
+    if not admin_check(form,'payment:'+oid):flash('Enter your password, a reason, and confirmation. No money action was performed.','error');return redirect(url_for('payments.detail',oid=oid))
+    log('Payment action requested: '+action,'payment:'+oid,form.reason.data.strip());db.session.commit()
+    try:
+        if action=='close_failed':
+            op=PaymentOperation.query.filter_by(scope=order.scope,owner_key='checkout:'+oid).first()
+            if not op or op.state!='rejected' or order.session_id or order.intent_id:raise engine.PaymentProblem('Only a definitely rejected checkout without a Stripe session can be closed.')
+            order.payment_state='expired';order.slot_key=None;order.appointment_payload={};order.request.state='rejected';order.request.dedupe_key=None;db.session.commit()
+        else:
+            engine.process_order(order,recover=action not in ('retry_refund','recover_transfer'))
+            if action=='approve_completion':
+                from .appointments import sync_one
+                mirror=AcuityAppointment.query.filter_by(request_id=oid).first()
+                if not mirror:raise engine.PaymentProblem('A confirmed appointment is required.')
+                sync_one(mirror.provider_id);b=order.booking
+                if not b or b.status!='confirmed' or b.start+timedelta(minutes=b.duration)>now() or order.payment_state!='paid' or order.refund_requested or order.hold_reason:
+                    raise engine.PaymentProblem('Verify the ended session and resolve payment/appointment issues before approval.')
+                order.completion_approved_at=now();db.session.commit()
+            elif action=='transfer':engine.transfer(order,retry=True)
+            elif action=='clear_review':
+                if order.hold_reason not in ('dispute','appointment_changed','cancellation_review'):raise engine.PaymentProblem('This hold needs another recovery action.')
+                from .appointments import sync_one
+                mirror=AcuityAppointment.query.filter_by(request_id=oid).first()
+                if not mirror:raise engine.PaymentProblem('Reconcile the appointment first.')
+                mirror=sync_one(mirror.provider_id)
+                for dispute in StripeDispute.query.filter_by(order_id=oid):
+                    data=stripe.api('GET','disputes/'+dispute.id)
+                    if data.get('charge')!=order.charge_id or data.get('status') not in ('won','warning_closed'):raise engine.PaymentProblem('An unresolved or lost dispute prevents release.')
+                    dispute.status=data['status']
+                db.session.commit();engine.refresh_payment(order)
+                if mirror.sync_state!='synced' or mirror.cancelled or order.payment_state!='paid' or order.refund_requested or order.refunded_cents or order.reversed_cents:
+                    raise engine.PaymentProblem('Appointment, refund, dispute, or recovered-funds review is still required.')
+                order.hold_reason='';order.error_code='';order.completion_approved_at=None;db.session.commit()
+            elif action=='recover_transfer':
+                if order.payment_state not in ('refunded','disputed') and order.hold_reason!='dispute':raise engine.PaymentProblem('Recovery requires a full refund or dispute.')
+                engine.recover_transfer(order,retry=True)
+            else:
+                if order.booking_state in ('creating','uncertain'):raise engine.PaymentProblem('Reconcile the uncertain Acuity appointment before refunding.')
+                if action=='retry_refund':
+                    op=PaymentOperation.query.filter_by(scope=order.scope,owner_key='refund:'+oid).first()
+                    if op and op.response_id:
+                        result=stripe.api('GET','refunds/'+op.response_id)
+                        if result.get('status') not in ('failed','canceled'):raise engine.PaymentProblem('The refund is not definitively failed; do not create another.')
+                        op.state='rejected';order.payment_state='paid';db.session.commit()
+                engine.request_refund(order,'admin_refund');engine.refund(order,retry=action=='retry_refund')
+        log('Payment action: '+action,'payment:'+oid,form.reason.data.strip());db.session.commit();flash('Action processed. Review the saved provider status below.','success')
+    except (stripe.StripeError,engine.PaymentProblem,acuity.AcuityError) as exc:flash(error_message(exc),'error')
+    return redirect(url_for('payments.detail',oid=oid))
+
+@bp.post('/support/payments/operations/<opid>/reconcile')
+@roles('admin')
+def reconcile(opid):
+    op=db.get_or_404(PaymentOperation,opid);form=ObjectForm(prefix='reconcile-')
+    if op.scope!=stripe.scope():abort(409)
+    if not admin_check(form,'payment-operation:'+opid):abort(400)
+    value=form.object_id.data.strip()
+    roots={'checkout':'checkout/sessions/','account':'accounts/','refund':'refunds/','transfer':'transfers/','reversal':op.path+'/'}
+    if op.kind not in roots or op.state=='succeeded':abort(409)
+    try:
+        data=stripe.api('GET',roots[op.kind]+value);engine.validate_result(op,data)
+        engine.apply_result(op,data);log('Stripe operation reconciled','payment-operation:'+opid,form.reason.data.strip());db.session.commit()
+        flash('Verified Stripe object linked to the original operation.','success')
+    except (stripe.StripeError,engine.PaymentProblem,ValueError) as exc:flash('Stripe object could not be verified. No new operation was submitted.','error')
+    return redirect(url_for('payments.detail',oid=op.order_id)) if op.order_id else redirect(url_for('payments.center'))
+
+@bp.post('/webhooks/stripe')
+def webhook():
+    if not stripe.configured():return '',503
+    if request.content_length and request.content_length>262144:abort(413)
+    raw=request.get_data();header=request.headers.get('Stripe-Signature','')
+    secrets_=[current_app.config.get('STRIPE_WEBHOOK_SECRET',''),current_app.config.get('STRIPE_CONNECT_WEBHOOK_SECRET','')]
+    if len(raw)>262144 or not any(stripe.verify_signature(raw,header,s) for s in secrets_):abort(403)
+    try:
+        event=json.loads(raw);kind=event['type'];obj=event['data']['object'];eid=event['id'];oid=obj['id']
+        if not isinstance(kind,str) or len(kind)>100:abort(400)
+        if event['livemode'] is not stripe.live() or not isinstance(eid,str) or not eid.startswith('evt_') or len(eid)>100 or not isinstance(oid,str) or len(oid)>100:abort(400)
+        if not (kind.startswith(('checkout.session.','charge.','refund.','payment_intent.','transfer.')) or kind=='account.updated'):return '',204
+        # Platform charge events only. Connected accounts only send readiness updates.
+        if event.get('account') and kind!='account.updated':return '',204
+        if StripeEvent.query.filter_by(scope=stripe.scope(),event_id=eid).first():return '',200
+        db.session.add(StripeEvent(scope=stripe.scope(),event_id=eid,event_type=kind,object_id=oid));db.session.commit()
+    except IntegrityError:db.session.rollback()
+    except (ValueError,KeyError,TypeError):abort(400)
+    return '',200
+
+@bp.route('/payments/mock/checkout/<sid>',methods=['GET','POST'])
+@roles('student')
+def mock_checkout(sid):
+    if stripe.mode()!='mock':abort(404)
+    order=PaymentOrder.query.filter_by(session_id=sid,scope=stripe.scope()).first_or_404();owned(order)
+    if order.request.user_id!=current_user.id:abort(403)
+    if EmptyForm().validate_on_submit():
+        from .stripe_mock import pay
+        try:pay(sid);engine.process_order(order)
+        except (stripe.StripeError,engine.PaymentProblem,acuity.AcuityError) as exc:flash(error_message(exc),'error')
+        return redirect(url_for('payments.detail',oid=order.id))
+    return render_template('payments/mock_checkout.html',o=order)
+
+@bp.post('/payments/mock/ready')
+@roles('mentor')
+def mock_ready():
+    if stripe.mode()!='mock':abort(404)
+    if not EmptyForm().validate_on_submit():abort(400)
+    from .stripe_mock import ready
+    row=engine.account_for(current_user.mentor.id)
+    if not row.account_id:abort(409)
+    ready(row.account_id);engine.refresh_account(row);return redirect(url_for('payments.connect'))
+
+@bp.post('/support/payments/accounts/attach')
+@roles('admin')
+def attach_account():
+    form=AttachForm(prefix='attach-')
+    if not admin_check(form,'stripe-account-link'):abort(400)
+    try:
+        if not form.mentor_id.data.isdigit():raise engine.PaymentProblem('Enter a valid mentor ID.')
+        mentor=db.get_or_404(Mentor,int(form.mentor_id.data));row=engine.account_for(mentor.id)
+        value=form.object_id.data.strip()
+        if row.account_id:raise engine.PaymentProblem('This mentor already has an account in the current Stripe scope.')
+        if PaymentOperation.query.filter_by(account_row_id=row.id,kind='account').filter(PaymentOperation.state!='rejected').first():raise engine.PaymentProblem('Reconcile the existing account creation operation first.')
+        if StripeAccount.query.filter_by(scope=stripe.scope(),account_id=value).first():raise engine.PaymentProblem('This account is already associated with a mentor.')
+        data=stripe.api('GET','accounts/'+value)
+        if data.get('id')!=value or data.get('country')!='US' or data.get('default_currency')!='usd' or not data.get('controller',{}).get('is_controller'):
+            raise engine.PaymentProblem('Use a US/USD connected account controlled by this Stripe platform.')
+        marked=data.get('metadata',{}).get('ttbg_mentor')
+        if marked and marked!=str(mentor.id):raise engine.PaymentProblem('The account metadata identifies a different mentor.')
+        row.account_id=value;db.session.commit();engine.refresh_account(row)
+        log('Existing Stripe account linked','mentor:'+str(mentor.id),form.reason.data.strip());db.session.commit();flash('Connected account verified and linked.','success')
+    except (engine.PaymentProblem,stripe.StripeError,ValueError) as exc:
+        db.session.rollback();flash(error_message(exc) if not isinstance(exc,ValueError) else 'Invalid account ID.','error')
+    return redirect(url_for('payments.center'))

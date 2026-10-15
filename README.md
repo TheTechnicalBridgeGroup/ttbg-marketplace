@@ -1,6 +1,8 @@
-# TTBG Marketplace — v0.6.7
+# TTBG Marketplace — v0.7.0
 
-TTBG v0.6.7 adds **Import from Acuity** under Services & pricing, with reviewed previews, mentor-calendar validation, and explicit updates for existing mappings. Zero-priced consultations now display **FREE**. Read **ACUITY_IMPORT_V067.md** for the walkthrough. Confirmed Acuity appointments, persistent synchronization, and isolated dummy-key practice mode remain available. It retains the v0.5 account lifecycle, email verification, Turnstile, shared documentation, help guide, and TTBG navy/gold interface. Start with **ACUITY_V06_SETUP.md** for local and production instructions. Appointment confirmation is implemented; payment collection and automatic Stripe payouts remain separate.
+TTBG v0.7.0 adds **Stripe Connect, hosted Checkout, verified payment webhooks, Acuity booking recovery, refunds, mentor earnings, and Admin-approved transfers**. **TTBG absorbs Stripe processing fees** out of its gross allocation; the default mentor share remains 80% of the session price. Start with **STRIPE_V07_SETUP.md** for upgrade steps, local dummy-key practice, real Stripe test mode, and controlled live activation. New paid checkout is disabled by default. No existing accounts are disabled or reset.
+
+The Acuity appointment-type import from v0.6.7, FREE consultations, confirmed appointment synchronization, four-role access model, account deletion, verification, Turnstile, support, documentation, and TTBG navy/gold design are retained.
 
 ## Role hierarchy
 
@@ -18,7 +20,9 @@ TTBG v0.6.7 adds **Import from Acuity** under Services & pricing, with reviewed 
 | Database explorer, CSV pages, statistics, audit, diagnostics | Yes | No | No | No |
 | Import and update services from an Acuity Appointment Type ID | Yes | Yes | No | No |
 | Scheduling URL/event references | Yes | Yes | View own service prices | No |
-| Stripe connected-account references | Yes | No | No | No |
+| Investigate payment status and recovery | Yes | Yes | Own earnings only | Own payments only |
+| Approve completion, transfer, refund, recover money | Yes, password + reason | No | No | No |
+| Hosted Stripe onboarding | Link verified existing accounts | No | Own connected account | No |
 | Browse public mentors and provider booking links | Yes | Yes | Yes | Yes |
 
 Existing `admin` accounts stay Admins. Existing `onboarding` accounts become Account Managers during `init-db`. This avoids silently removing anyone’s administrative access; an Admin can reassign other staff after deployment. Mentor accounts remain tied to mentor profiles, so staff roles cannot be attached to an existing mentor identity through the role editor.
@@ -76,7 +80,7 @@ This release implements native Acuity appointment creation and synchronization:
 
 The existing availability + contact and hosted-link modes remain optional. Upgrading does not silently enable provider writes. For a complete walkthrough, including `.env` dummy credentials, test accounts, failure scenarios, and live activation, read **ACUITY_V06_SETUP.md**. Dummy mode uses a separate SQLite database and never calls Acuity. Live mode uses a fixed Acuity HTTPS origin with backend-only credentials.
 
-External appointments are saved by webhook/ID fetch and remain staff-only until explicitly linked to an existing student. Confirmed booking is not card checkout or an automatic 80/20 payout. See SCHEDULING_OPTIONS.md for that separate payment scope.
+External appointments are saved by webhook/ID fetch and remain staff-only until explicitly linked to an existing student. When v0.7 Stripe payments are enabled, payment is verified before a paid appointment is created. Transfers remain separately approved after completion. See STRIPE_V07_SETUP.md.
 
 ## Support Center
 
@@ -88,7 +92,7 @@ Only the exact `admin` and `account_manager` roles can access `/support`, includ
 - See enabled/restricted status, recent sign-in attempts, mentor links, the latest account/mentor activity, and recent stored bookings.
 - Write internal, append-only notes. They are never shown on student/mentor dashboards and record the author and time.
 - Generate one-time reset links or revoke sessions with your own password and an audit reason. Account Managers can perform these actions only for students and mentors. Admins can also help staff accounts. No automatic email is sent.
-- Find stored bookings and inspect their recorded allocation and status. Provider payments, delivery confirmations, and appointments are not verified by these records.
+- Find stored bookings and inspect their recorded allocation and status. Stripe payment details fetch verified provider state; historical non-Stripe booking records retain their original labels.
 - Triage unhandled application errors and Acuity request failures using a reference ID. Errors record only the route template, method, type, affected account if signed in, and time. They exclude raw exception messages, URL parameters, request bodies, and credentials. Both staff roles can add resolution notes and close an issue.
 - Check Acuity connectivity without receiving credential values. If the database is unavailable, an error reference is written to hosting logs where possible; no database incident can be guaranteed during that outage.
 
@@ -122,7 +126,7 @@ The help widget answers common navigation questions with built-in guidance and o
 
 **Support → Account lookup → click an account → Delete account** lets an Admin delete any non-admin account's actual `market_user` row, password hash, verification/reset records, mentor profile, service mappings, photos, own support notes, and related unpaid test reservations. Confirmation requires the exact account email, your current admin password, and a reason. It is unavailable to Account Managers, mentors, and students. All Admin accounts are protected from deletion, including your own and every other Admin, even when disabled. There is no bulk-disable or bulk-delete startup command.
 
-Having booking history does not block deletion. Actual booking/payment snapshots are retained with their recorded amounts, status, and dates, and reassigned to non-login archive references. Personal session goals are cleared. Other participants keep access to their booking records. Shared audit/support attribution remains under a disabled, non-login “Deleted account” principal; the original login row is gone. The archive principal is hidden from account lists and cannot sign in, be enabled through the editor, or be deleted through this action. This also prevents SQLite from reusing removed account IDs. Free text in other accounts' notes/audit records and backups is not automatically erased. External Acuity, Stripe, help desk, and email-provider records are unchanged.
+Having booking history does not block deletion. Actual booking/payment snapshots are retained with their recorded amounts, status, and dates, and reassigned to non-login archive references. Personal session goals are cleared. Other participants keep access to their booking records. Shared audit/support attribution remains under a disabled, non-login “Deleted account” principal; the original login row is gone. The archive principal is hidden from account lists and cannot sign in, be enabled through the editor, or be deleted through this action. This also prevents SQLite from reusing removed account IDs. Free text in other accounts' notes/audit records and backups is not automatically erased. External records remain; unconfirmed v0.7 payments are held/reconciled and may require refunds. See STRIPE_V07_SETUP.md for deletion during checkout.
 
 New web-created accounts must prove email ownership before entering their dashboard, managing a profile, using staff tools, or booking. Email changes clear prior verification and invalidate outstanding verification links. A new mentor must verify before publication. Verification links expire after one hour, are hashed in the database, and are single-use. The owner explicitly chooses a password on confirmation, preventing a person who preregistered someone else's email from retaining a known password. Confirmation revokes earlier sessions and requires a new sign-in. Visiting the link alone does not consume it.
 

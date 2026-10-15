@@ -8,7 +8,7 @@ import shutil
 import sys
 from datetime import timedelta
 from importlib.metadata import version
-from flask import Blueprint, abort, flash, redirect, render_template, request, session, url_for, make_response
+from flask import current_app,Blueprint, abort, flash, redirect, render_template, request, session, url_for, make_response
 from flask_login import current_user, logout_user
 from sqlalchemy import select, func, or_
 from sqlalchemy.exc import IntegrityError
@@ -171,6 +171,8 @@ def platform_settings():
     if form.validate_on_submit() and confirmed(form):
         if form.booking_mode.data in ('acuity','acuity_confirmed') and form.scheduling_provider.data!='acuity':
             form.scheduling_provider.errors.append('Choose Acuity Scheduling for native availability.')
+        elif current_app.config['PAYMENTS_ENABLED'] and form.booking_mode.data!='acuity_confirmed':
+            form.booking_mode.errors.append('Disable new Stripe payments before switching away from confirmed Acuity bookings.')
         elif form.booking_mode.data=='external' and form.scheduling_provider.data=='unselected':
             form.scheduling_provider.errors.append('Select a provider before enabling hosted booking links.')
         else:
@@ -222,7 +224,7 @@ def audit_log():
     page=PlatformAudit.query.order_by(PlatformAudit.id.desc()).paginate(page=request.args.get('page',1,type=int),per_page=50,error_out=False)
     return render_template('audit.html',page=page)
 
-REDACTED={'password_hash','token_hash','image'}
+REDACTED={'password_hash','token_hash','image','appointment_payload','params','checkout_url','payload'}
 def display_value(key,value):
     if key in REDACTED:return '[redacted]' if value is not None else ''
     if value is None:return ''
@@ -256,5 +258,5 @@ def resources():
     usage=shutil.disk_usage(current_app.instance_path if os.path.isdir(current_app.instance_path) else current_app.root_path)
     try:db.session.execute(select(1));database='Reachable'
     except Exception:db.session.rollback();database='Unavailable'
-    info={'Release':'0.6.0','Python':platform.python_version(),'Flask':version('flask'),'Database engine':db.engine.dialect.name,'Database connection':database,'Runtime disk free':f'{usage.free/(1024**3):.1f} GiB','Runtime disk total':f'{usage.total/(1024**3):.1f} GiB','Photo storage':'Database (included in database backups)','Session cookies secure':str(current_app.config['SESSION_COOKIE_SECURE']),'Scheduling API':'Acuity appointment creation and synchronization; verify in Support','Payment processing':'Not connected'}
+    info={'Release':'0.7.0','Python':platform.python_version(),'Flask':version('flask'),'Database engine':db.engine.dialect.name,'Database connection':database,'Runtime disk free':f'{usage.free/(1024**3):.1f} GiB','Runtime disk total':f'{usage.total/(1024**3):.1f} GiB','Photo storage':'Database (included in database backups)','Session cookies secure':str(current_app.config['SESSION_COOKIE_SECURE']),'Scheduling API':'Acuity appointment creation and synchronization; verify in Support','Payment processing':'Stripe Connect; see Support → Payments for mode and readiness'}
     return render_template('resources.html',info=info)

@@ -1,4 +1,4 @@
-# Deploy TTBG Marketplace v0.6.7
+# Deploy TTBG Marketplace v0.7.0
 
 Update the existing **ttbg-marketplace** repository and Render service. Do not upload the mentor portal or help desk code into this repository.
 
@@ -39,8 +39,8 @@ For multiple Render instances, run `flask --app run init-db` once as a controlle
 | `PUBLIC_BASE_URL` | Exact public HTTPS marketplace origin, without a path or trailing slash |
 | `ACUITY_USER_ID` | Numeric Acuity API user ID; optional until availability is enabled |
 | `ACUITY_API_KEY` | Acuity API key; backend-only, admin password required to reveal |
-| `STRIPE_SECRET_KEY` | Optional future Stripe Connect credential; checkout is not implemented |
-| `STRIPE_WEBHOOK_SECRET` | Optional future webhook signing secret; webhook processing is not implemented |
+| `STRIPE_SECRET_KEY` | Mode-matched Stripe platform secret key; see STRIPE_V07_SETUP.md |
+| `STRIPE_WEBHOOK_SECRET` | Platform snapshot webhook signing secret; worker required |
 
 Use the connection string and TLS options required by your database provider:
 
@@ -75,7 +75,7 @@ If the service has no Admin yet, run `flask --app run create-admin` in an author
 8. Confirm credential values are absent from the initial HTML; test the admin confirmation dialog on a private screen using a non-production key first.
 9. Keep **Contact TTBG** until Acuity API credentials, calendar IDs, and appointment-type IDs are configured. Check Acuity connectivity in Support Center, inspect one mentor/service's availability, enable automatic sync, then select **Acuity confirmed appointments** when ready. See ACUITY_V06_SETUP.md.
 10. Verify the calendar on a phone and desktop, including dark mode, timezone changes, empty dates, and denied Acuity requests. Compare the results with Acuity directly. The source package was tested with mocked provider responses, not your live account.
-11. Keep Stripe checkout and appointment creation as the next integration stage. No automatic payment split, refund, webhook, or mentor account onboarding endpoint is shipped in this release.
+11. Follow STRIPE_V07_SETUP.md for Stripe credentials, both webhook destinations, the required dedicated worker, local/staging verification, and controlled activation. Keep new payments disabled until approved.
 
 The Blueprint service name is `ttbg-marketplace`. Keep the existing service identity when updating; do not accidentally provision a second service or replace the existing database.
 
@@ -115,3 +115,7 @@ Under Admin → Settings, set the public team contact number in international fo
 Read ACUITY_V06_SETUP.md. Set APP_ENV=production and ACUITY_MODE=live; retain the existing external production DATABASE_URL. Set the real ACUITY_USER_ID/ACUITY_API_KEY and trusted public HTTPS origin. Run the additive init-db migration before serving requests. Five new tables store booking requests, Acuity snapshots, durable sync retries, and local simulator data. The simulator tables remain empty in production.
 
 Verify mappings, enable the change webhook, and select the confirmed-appointments mode. A local dummy-key test is not a live API entitlement or webhook test. Exercise one controlled real booking and a provider-side change. Configure the periodic sync-acuity command for missed-notification recovery. Never deploy the local practice database or dummy environment values. Old v0.5 code does not understand the new appointment state/foreign keys; use a forward fix instead of deleting new records or rolling back code casually.
+
+## v0.7 payment worker
+
+After init-db completes, run `python -m flask --app run payments-worker` as a separate worker service with the same code, database, and environment. Do not run another web listener for the worker. The supplied Render blueprint keeps the existing web service only; create/configure the worker deliberately before enabling payments. See STRIPE_V07_SETUP.md for all payment environment variables and recovery procedures.

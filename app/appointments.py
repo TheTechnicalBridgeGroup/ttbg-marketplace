@@ -177,10 +177,16 @@ def save_snapshot(data,req=None):
         # Never silently transfer ownership or reveal changed client details to an earlier owner.
         changed=original and (item.price_cents!=b.price_cents or item.duration!=original.duration or item.calendar_id!=original.calendar_id or item.type_id!=original.type_id or
             (not item.identity_removed and item.email!=original.email))
+        if original and original.payment:
+            payment=original.payment
+            if changed:payment.hold_reason='appointment_changed'
+            if b.start!=item.starts_at or b.duration!=item.duration:
+                payment.completion_approved_at=None;payment.completion_reported_at=None
+            if item.cancelled:payment.hold_reason=payment.hold_reason or 'cancellation_review'
         if changed:item.sync_state='needs_review';b.status='sync_review'
         else:
             b.start=item.starts_at;b.duration=item.duration;b.status='cancelled' if item.cancelled else 'confirmed'
-            b.payment_status=payment_label(b.price_cents,item.paid)
+            b.payment_status='stripe_'+original.payment.payment_state if original and original.payment else payment_label(b.price_cents,item.paid)
             if original and (item.cancelled or item.starts_at!=original.starts_at):original.dedupe_key=None
     if req and item.booking:log('Acuity appointment confirmed',f'booking:{item.booking.id}',f'Acuity ID {item.provider_id}; {acuity.mode()}.',actor_id=req.user_id)
     db.session.flush();return item
@@ -211,7 +217,9 @@ def sync_one(provider_id):
 @bp.route('/appointments/new/<int:sid>',methods=['GET','POST'])
 @roles('student')
 def book(sid):
-    form=ConfirmationForm();fields=[];field_errors={};error=None;service=None;quoted=None
+    from . import payment_engine as payments
+    from .stripe_api import StripeError
+    form=ConfirmationForm();fields=[];field_errors={};error=None;service=None;quoted=None;paid_checkout=False;payment_account=None
     # Repeat submissions of an accepted request never send another provider POST.
     if request.method=='POST' and form.request_id.data:
         prior=db.session.get(AcuityRequest,form.request_id.data)
@@ -233,10 +241,15 @@ def book(sid):
         if quoted and (quoted['ids']!=ids or quoted['price']!=service.price_cents or quoted['duration']!=service.duration or quoted['fee_bps']!=settings().fee_bps or quoted['scope']!=acuity.scope()):
             raise acuity.AcuityError('booking_details_changed',True)
         acuity.throttle();fields=catalog(service)
+        paid_checkout=payments.enabled() and service.price_cents>0
+        if quoted and quoted.get('paid_checkout',False)!=paid_checkout:raise acuity.AcuityError('booking_details_changed',True)
+        if paid_checkout:
+            payment_account=payments.checkout_check(service,starts)
+            form.acknowledge.label.text='I agree to the session price and payment/cancellation information shown here. My appointment is confirmed only after Acuity accepts it.'
         if request.method=='GET':
             rid=secrets.token_hex(16);form.request_id.data=rid
             form.quote.data=serializer().dumps(dict(request_id=rid,user_id=current_user.id,sid=sid,ids=ids,price=service.price_cents,
-                duration=service.duration,fee_bps=settings().fee_bps,zone=zone,time=starts.replace(tzinfo=timezone.utc).isoformat(),scope=acuity.scope()))
+                duration=service.duration,fee_bps=settings().fee_bps,zone=zone,time=starts.replace(tzinfo=timezone.utc).isoformat(),scope=acuity.scope(),paid_checkout=paid_checkout))
             names=current_user.name.split(' ',1);form.first_name.data=names[0];form.last_name.data=names[1] if len(names)>1 else ''
         elif form.validate_on_submit():
             answers,field_errors=read_answers(fields)
@@ -253,6 +266,11 @@ def book(sid):
                 req=AcuityRequest(id=form.request_id.data,user_id=current_user.id,service_id=sid,scope=acuity.scope(),calendar_id=ids['calendarID'],type_id=ids['appointmentTypeID'],
                     starts_at=starts,timezone=zone,email=current_user.email,service_name=service.name,price_cents=service.price_cents,duration=service.duration,fee_bps=settings().fee_bps,state='creating',dedupe_key=fingerprint)
                 db.session.add(req)
+                payload=dict(calendarID=int(ids['calendarID']),appointmentTypeID=int(ids['appointmentTypeID']),datetime=starts.replace(tzinfo=timezone.utc).isoformat(),timezone=zone,
+                    firstName=form.first_name.data.strip(),lastName=form.last_name.data.strip(),email=req.email,phone=form.phone.data.strip(),fields=answers,smsOptIn=False)
+                if paid_checkout:
+                    order=payments.start_checkout(req,service,payload,payment_account)
+                    return redirect(url_for('payments.detail',oid=order.id))
                 try:db.session.commit()
                 except IntegrityError:
                     db.session.rollback();existing=AcuityRequest.query.filter_by(dedupe_key=fingerprint).first()
@@ -274,16 +292,18 @@ def book(sid):
                     db.session.rollback()
                     return redirect(url_for('appointments.request_status',rid=form.request_id.data))
                 return redirect(url_for('appointments.request_status',rid=form.request_id.data))
-    except (acuity.AcuityError,ZoneInfoNotFoundError,ValueError,TypeError,KeyError) as exc:
-        error=exc.code if isinstance(exc,acuity.AcuityError) else 'invalid_booking_details'
+    except (acuity.AcuityError,StripeError,payments.PaymentProblem,ZoneInfoNotFoundError,ValueError,TypeError,KeyError) as exc:
+        db.session.rollback()
+        error=exc.code if isinstance(exc,(acuity.AcuityError,StripeError)) else str(exc) if isinstance(exc,payments.PaymentProblem) else 'invalid_booking_details'
     return render_template('appointments/confirm.html',s=service,form=form,fields=fields,field_errors=field_errors,error=error,
-        starts=starts.replace(tzinfo=timezone.utc).astimezone(ZoneInfo(zone)) if service and 'starts' in locals() and not error else None,zone=zone if 'zone' in locals() else '')
+        starts=starts.replace(tzinfo=timezone.utc).astimezone(ZoneInfo(zone)) if service and 'starts' in locals() and not error else None,zone=zone if 'zone' in locals() else '',paid_checkout=paid_checkout)
 
 @bp.get('/appointments/requests/<rid>')
 @login_required
 def request_status(rid):
     req=db.get_or_404(AcuityRequest,rid)
     if req.user_id!=current_user.id and current_user.role not in STAFF:abort(403)
+    if req.payment:return redirect(url_for('payments.detail',oid=rid))
     linked=AcuityAppointment.query.filter_by(request_id=rid).first()
     if req.state=='confirmed' and linked and linked.booking_id:return redirect(url_for('main.booking_detail',bid=linked.booking_id))
     return render_template('appointments/pending.html',req=req,staff=current_user.role in STAFF)
@@ -364,8 +384,12 @@ def reconcile(rid):
             if not release.validate_on_submit():abort(400)
             if not reauthenticate(release.password.data,f'acuity-request:{rid}'):abort(403)
             write_lock();db.session.refresh(req)
-            if req.state not in ('uncertain','creating') or req.updated_at>now()-timedelta(seconds=60):abort(409)
-            req.state='rejected';req.dedupe_key=None;req.error_code='staff_confirmed_not_created'
+            eligible=req.state in ('uncertain','creating') or (req.state=='deleted' and req.payment and req.payment.booking_state in ('creating','uncertain'))
+            if not eligible or req.updated_at>now()-timedelta(seconds=60):abort(409)
+            if req.state!='deleted':req.state='rejected'
+            req.dedupe_key=None;req.error_code='staff_confirmed_not_created'
+            if req.payment:
+                req.payment.booking_state='rejected';req.payment.refund_requested=True;req.payment.hold_reason='staff_confirmed_no_appointment'
             log('Acuity request released',f'acuity-request:{rid}',release.reason.data.strip());db.session.commit()
             flash('Request released after your Acuity check. The student may choose a time again.','success')
         elif request.form.get('operation')=='search':

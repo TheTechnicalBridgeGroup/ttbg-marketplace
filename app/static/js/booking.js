@@ -7,7 +7,7 @@
   });
   window.addEventListener('pageshow', () => {
     document.querySelectorAll('form[data-booking-submit] button[type="submit"]').forEach(button => {
-      button.disabled = false; button.textContent = 'Confirm my appointment →';
+      button.disabled = false; button.textContent = 'Confirm my appointment';
     });
   });
 })();

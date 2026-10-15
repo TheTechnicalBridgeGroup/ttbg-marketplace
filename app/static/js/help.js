@@ -5,7 +5,7 @@
   const input = document.getElementById('help-text');
   const close = document.getElementById('help-close');
   const responses = {
-    booking: 'Open Find a mentor, select a profile and service, and check availability. In confirmed booking mode, choose a time, enter your details, and submit confirmation. Check your dashboard for the appointment. If confirmation is uncertain, contact TTBG before trying again. An available time is not reserved, and confirmation does not collect payment.',
+    booking: 'Open Find a mentor, select a profile and service, and check availability. In confirmed booking mode, choose a time, enter your details, and submit confirmation. Check your dashboard for the appointment. If confirmation is uncertain, contact TTBG before trying again. An available time is not reserved. When payments are enabled, paid sessions use Stripe Checkout before Acuity confirms the appointment; FREE consultations skip payment. Open Payments to review status or contact TTBG for refund help.',
     account: 'For a new account, open the verification email and choose your password. Check spam or sign in to resend the email. For a forgotten password or account restriction, submit a ticket so the team can help you recover access. Never send your password in a ticket.',
     profile: 'Mentors can upload a profile picture from their dashboard. An admin or account manager reviews it before publication. The current approved photo stays visible until the replacement is approved.',
     documentation: 'Admins, account managers, and mentors can open Documentation from the main navigation. Admins and account managers can add, edit, and delete pages and upload images.',

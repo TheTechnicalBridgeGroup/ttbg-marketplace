@@ -3,7 +3,7 @@
 {% block title %}Import from Acuity{% endblock %}
 {% block content %}
 <div class="container section import-workspace">
-  <a class="back" href="{{ url_for('main.review',mid=m.id) }}">← {{ m.user.name }} · Services & pricing</a>
+  <a class="back" href="{{ url_for('main.review',mid=m.id) }}">{{ m.user.name }} · Services & pricing</a>
   <div class="section-heading"><div><p class="eyebrow">CONNECTED SERVICE SETUP</p><h1>Import from Acuity.</h1><p class="lede">Bring your mentor’s offering into TTBG with the details already entered in Acuity.</p></div><a class="button outline" href="{{ url_for('main.service_edit',mid=m.id) }}">Add manually</a></div>
   <ol class="booking-steps" aria-label="Import progress"><li class="{{ 'active' if not form else '' }}">1 · Find appointment type</li><li class="{{ 'active' if form else '' }}">2 · Review & save</li></ol>
   {% if error %}<div class="notice" role="alert">{{ error }}</div>{% endif %}

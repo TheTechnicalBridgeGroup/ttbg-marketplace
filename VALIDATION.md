@@ -1,56 +1,36 @@
-# TTBG Marketplace v0.6.7 validation
+# TTBG Marketplace v0.7.0 validation
 
-Validated locally on October 15, 2026. **138 automated tests verified: 109 retained tests and 29 v0.6.7 tests.** The retained tests passed in the full regression run. The v0.6.7 suite passed on its focused rerun after correcting a test to follow the confirmation redirect.
+Validated locally on October 15, 2026. **163 automated tests covered: 138 retained regression tests and 25 new v0.7 payment tests.** The full regression run passed all 161 tests present at that point. After adding two recovery regression cases and correcting their explicit-retry paths, all 25 payment tests passed together. Focused webhook/worker and won-dispute tests passed after the final recovery-polling and simulator refinements. Test outcomes are local simulation/transport checks, not evidence of live provider activation.
 
-## Coverage
+## Payment checks
 
-### v0.6.7 imports and free consultations
+- No appointment exists before verified payment. $100 checkout stores $80 mentor/$20 TTBG allocations, with a separately recorded simulated processing fee absorbed by TTBG.
+- Canonical Checkout, PaymentIntent, charge, amount/currency/order verification; tampered amount fails closed. Transport uses the pinned API version, fixed Stripe origin, Basic authorization, nested form encoding, and persistent idempotency headers.
+- Signed raw-body webhook rejection for bad signatures, stale timestamps, and wrong mode; durable inbox, duplicate event IDs, worker processing, and stale event delivery.
+- Local slot conflicts after payment produce one full refund and no booking. Uncertain Acuity creation never retries and reconciles to the original appointment.
+- Expired Checkout releases local coordination state; repeated submissions and uncertain Checkout response recovery do not create a second session or appointment.
+- Transfer requires completion approval after the scheduled end, available funds, current mentor readiness, no refund/dispute hold, and a known transfer history. Repeated transfers produce one mentor transfer.
+- Full refunds after transfer recover the mentor allocation separately. Definitive rejected refunds and failed reversals can be explicitly retried by an Admin. Unknown refund outcomes reconcile without a second refund.
+- External partial refunds are not silently expanded. External full refunds recover known mentor transfers. Unknown external transfer groups hold new transfer actions.
+- Disputes block transfers; a canonically won dispute can be released, completion reapproved, and the original allocation transferred. Cancellation holds and rescheduling approval resets are exercised.
+- Account managers and mentors cannot call Admin money endpoints. Other students cannot view payments. Wrong-password and CSRF submissions cannot perform money actions. Readiness is not granted just by returning from onboarding.
+- New-payment feature flag does not abandon existing paid sessions. Free consultation creation bypasses Stripe even without credentials.
+- Mentor deletion detaches the payment association and preserves financial records; a deleted student's late payment refunds without recreating the identity.
+- Manual linking of an existing Stripe operation validates its original metadata. Retry-window expiry moves the write to manual reconciliation.
 
-- Two-step preview/save with actual mock-provider reads; preview alone leaves services unchanged. Maps both service type fields consistently and permits nonstandard whole-minute durations such as 45 minutes.
-- Admin/Account Manager access, mentor/student denial, anonymous redirects, CSRF, suspended mentor protection, rate limits, and provider failure redaction.
-- Per-mentor duplicate detection across legacy and modern mappings, multiple-match rejection, shared types across mentors, explicit updates, and repeated-submit rejection.
-- Signed preview expiry, tamper protection, actor/mentor/provider-scope binding, stale source/service/calendar/commission/mapping rejection, and concurrent-state conflict detection. This does not constitute multi-worker MySQL/PostgreSQL load testing.
-- Current-versus-imported review, missing descriptions, HTML-to-text conversion, truncation warnings, private-type visibility defaults, checkbox validation, and external scheduling-link replacement only on confirmation.
-- Unsupported type, inactive type, invalid ID, calendar mismatch, negative/nonfinite/out-of-range price, and invalid duration rejection without service writes.
-- Existing booking amounts and commission snapshots retained across a confirmed service update.
-- Zero-priced imports, manual service creation, mentor price changes, FREE presentation on listings/profile/booking screens, unchanged numeric money formatting, and complete mock free booking plus signed synchronization using No payment required.
+## Retained behavior
 
+Existing tests cover mentor profile workflows, service import/update from Acuity, FREE presentation, Acuity creation/synchronization, account access/reset/deletion, verification emails, Turnstile, photo review/compression, knowledge-page editing, support tooling, commission snapshots, and protected credential reveal. No existing accounts/passwords are reset during upgrade.
 
-### v0.6 Acuity booking and synchronization
+## Schema and presentation
 
-- Confirmed appointment creation, persisted provider snapshots, student/mentor dashboard access, required intake, CSRF, role restrictions, signed quote validation, stale pricing, and client-field tampering.
-- Repeat form submission and distinct duplicate requests do not create a second appointment. A provider timeout after creation remains uncertain and requires staff reconciliation. A database failure after provider acceptance leaves the durable request for recovery.
-- Signed webhooks, invalid signatures, duplicate/out-of-order delivery, rescheduling, cancellation, provider payment labels, durable sync failures, and CLI recovery. Provider email, price, or duration changes trigger review without rewriting agreed financial amounts.
-- Staff-only mapping checks, explicit linking of external appointments, password-protected reconciliation/release, and idempotent webhook registration.
-- Account deletion with foreign keys enforced; later synchronization does not restore removed identity on linked records.
-- Isolated mock configuration, local-only requests, dummy credentials rejected in live mode, seeded practice accounts, and CLI-delivered signed change events.
-- Live transport shape checked using a mocked HTTP transport: fixed HTTPS origin, backend authentication, client-validated creation without the admin bypass, and conservative HTTP error classification. No live Acuity request was made.
-- Timezone offsets across daylight-saving changes and a webhook arriving before the creation response is persisted.
+- All 38 table definitions and indexes compile for PostgreSQL and MySQL. SQLite workflow tests enable foreign keys. This is not a live PlanetScale/PostgreSQL migration test.
+- Repeated additive upgrade preserves existing users, roles, password hashes, and edited documentation. Seven payment tables and one seeded editable payment guide are new.
+- Payment history/details, mentor onboarding, and staff payment center render through Flask test clients. They reuse the existing responsive TTBG navy/gold styles and theme controls. No visual browser/screenshot QA was performed in this environment.
+- Python source compiles. Release archive excludes `.env`, local databases, virtual environments, runtime instances, credentials, and caches; only example environment files are included.
 
-### Retained platform regression coverage
+## Remaining operator verification
 
-- Existing onboarding, role management, password reset, commission settings, photo moderation, Support Center, redacted data views, API-key reveal, and read-only Acuity availability regressions.
-- Admin-only hard deletion from Support account details; both self and every other Admin are protected. Original user records, logins, profiles, photos, and dependent private data are removed. Old sessions cannot revive through reused SQLite IDs.
-- Deleting students, mentors, and account managers with foreign keys enforced. Paid/non-test booking amounts/status/dates survive under non-login archive references; other participants retain their records. Shared support/audit/documentation attribution remains readable.
-- New registration remains restricted until verification. Token hashing, one-hour expiry, single use, replacement on resend, email-change invalidation, CSRF, disabled-account rejection, configured-origin links, mailbox-owner password choice, and old-session revocation.
-- Verification email send failure, missing SMTP configuration, and certificate-verified STARTTLS transport behavior. SMTP calls are mocked; no real email was sent.
-- Turnstile server verification, expected hostname/action, replay rejection, missing keys/network failure, and scoped CSP. Cloudflare responses are mocked; live widgets were not exercised.
-- Database-backed registration/verification rate limits, trusted proxy hop selection, and additive upgrade preserving access/passwords/disabled states.
-- Documentation read/write/image permissions across all four roles, escaped text, search, parent/child organization, cycle and cross-space rejection, page/image deletion, and stale version conflict checks. Two concurrent real database workers were not exercised.
-- Documentation image metadata removal, WebP encoding, preserved aspect ratio, 1600-pixel resize, 500 KB output cap, input-size/type restrictions, required descriptions, 10-image limit, CSRF, and private image responses.
-- Public help-guide phone link and ticket link, Admin-only phone configuration, invalid phone rejection, widget enable/disable, and role-appropriate navigation.
-- Starter documentation seeds once and subsequent upgrades preserve team edits.
+Real Stripe Connect onboarding, Checkout, webhook reachability, payment settlement, account restrictions, refund/reversal behavior with real balances, and bank payouts must be tested with TTBG's actual test/live credentials. Live Acuity calendar entitlement/mappings, reminders, provider email, SMTP, and Turnstile require their own end-to-end checks. No production service, account, database, payment, appointment, or deployment was changed by this release build.
 
-## Additional checks
-
-- Python compilation and JavaScript syntax checks for booking.js, help.js, verification.js, ui.js, and theme.js.
-- The 31 existing table definitions were unchanged by v0.6.7; their PostgreSQL/MySQL compilation checks from v0.6 remain applicable. Workflow tests use SQLite with foreign keys enabled; no live PostgreSQL/MySQL migration was performed.
-- Templates rendered through Flask test clients. No new runtime dependencies were added.
-
-## Practical limits
-
-The browser installation available in this environment was unusable, so desktop/mobile visual checks, keyboard focus, the help widget’s interactive conversation, and live Cloudflare rendering require a real-browser review before deployment. The phone link is a device handoff, not an embedded call or live-agent transfer. Documentation is a lightweight text-and-image knowledge base, with optimistic version checking but no revision restoration or simultaneous collaborative editor.
-
-SMTP configuration and real inbox delivery must be checked with the production mail provider. Turnstile must be configured and tested on the actual marketplace hostname. No live account, database, hosting service, mail delivery, phone call, DNS setting, appointment, or payment was modified.
-
-Confirmed appointment creation and synchronization are implemented. Production Acuity API entitlement, real calendar/type mappings, email delivery, and public webhook reachability require a controlled live test with your account. Stripe Connect onboarding/checkout/webhooks and automated payouts remain outside this release; appointment confirmation does not collect payment. The existing availability/contact mode remains selectable, and an upgrade does not silently enable provider writes. Account deletion does not cancel or refund external-provider transactions, remove backups, or erase all free-text references from retained shared records.
+Read STRIPE_V07_SETUP.md before activation. New payments are disabled by default; a persistent worker is required. Initial scope is US/USD, cards, full remaining refunds, and Admin-approved transfers. Partial-refund settlement, disputed money already reversed, tax/reporting, permitted fund-holding timing, and platform bank-payout/balance policy require the documented operator decisions. Transfer status does not claim a completed bank payout.

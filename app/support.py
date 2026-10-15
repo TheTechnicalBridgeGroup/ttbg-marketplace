@@ -19,7 +19,8 @@ staff=roles('admin','account_manager')
 CREDENTIALS={'acuity':('Acuity API key','ACUITY_API_KEY'),
              'acuity_webhook':('Acuity static webhook signing key','ACUITY_WEBHOOK_SECRET'),
              'stripe':('Stripe secret key','STRIPE_SECRET_KEY'),
-             'stripe_webhook':('Stripe webhook signing secret','STRIPE_WEBHOOK_SECRET'),
+             'stripe_webhook':('Stripe platform webhook signing secret','STRIPE_WEBHOOK_SECRET'),
+             'stripe_connect_webhook':('Stripe connected-account webhook signing secret','STRIPE_CONNECT_WEBHOOK_SECRET'),
              'turnstile':('Turnstile secret key','TURNSTILE_SECRET_KEY')}
 
 class NoteForm(FlaskForm):

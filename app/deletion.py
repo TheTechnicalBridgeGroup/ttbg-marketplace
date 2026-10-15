@@ -61,7 +61,18 @@ def delete_account(uid):
 
 def purge(u,reason):
     uid=u.id;mid=u.mentor.id if u.mentor else None
-    from .models import AcuityRequest,AcuityAppointment
+    from .models import AcuityRequest,AcuityAppointment,StripeAccount,PaymentOrder,PaymentOperation
+    terms=[AcuityRequest.user_id==uid]
+    if mid:terms.append(AcuityRequest.service_id.in_([s.id for s in u.mentor.services]))
+    request_ids=[r.id for r in AcuityRequest.query.filter(or_(*terms))]
+    for order in PaymentOrder.query.filter(PaymentOrder.id.in_(request_ids)):
+        order.appointment_payload={};order.hold_reason='account_deleted'
+        if order.booking_state=='waiting':order.refund_requested=True
+        for op in PaymentOperation.query.filter_by(order_id=order.id,kind='checkout'):
+            params=dict(op.params);params.pop('customer_email',None);op.params=params
+            if op.state not in ('succeeded','rejected'):
+                op.state='manual_review';op.error_code='deleted_identity_reconcile_only'
+    if mid:StripeAccount.query.filter_by(mentor_id=mid).update({'mentor_id':None,'ready':False,'status':'account_deleted'},synchronize_session=False)
     bids=[b.id for b in related_bookings(u)]
     if bids:AcuityAppointment.query.filter(AcuityAppointment.booking_id.in_(bids)).update({'identity_removed':True,'email':'','client_name':'','location':''},synchronize_session=False)
     AcuityRequest.query.filter_by(user_id=uid).update({'user_id':None,'email':'','state':'deleted','dedupe_key':None},synchronize_session=False)

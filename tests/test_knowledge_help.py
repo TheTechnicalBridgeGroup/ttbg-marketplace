@@ -146,6 +146,6 @@ def test_help_settings_phone_roles_and_public_contact(app):
 def test_upgrade_seeds_documentation_once_and_preserves_edits(app):
     from app.upgrade import upgrade
     with app.app_context():
-        upgrade();assert KnowledgePage.query.count()==4
+        upgrade();assert KnowledgePage.query.count()==5
         page=KnowledgePage.query.first();page.body='Our edited guide';db.session.commit()
-        upgrade();assert KnowledgePage.query.count()==4 and page.body=='Our edited guide'
+        upgrade();assert KnowledgePage.query.count()==5 and page.body=='Our edited guide'

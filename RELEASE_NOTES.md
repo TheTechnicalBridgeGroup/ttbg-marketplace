@@ -1,3 +1,15 @@
+# v0.7.0 — Stripe Connect and completion-based mentor transfers
+
+- Separate charges and transfers with Stripe-hosted Checkout and US/USD connected-account onboarding.
+- TTBG absorbs processing fees; each order preserves its original allocation and separately records Stripe's reported processing fee.
+- Verified payments precede Acuity creation. Failed appointments refund; uncertain creation is reconciled without duplicate provider requests.
+- Durable signed webhook inbox, payment worker, stable operation keys, conservative retry window, and verified object recovery.
+- TTBG payment center for staff, personal payment/earnings history, mentor readiness, completion reporting, and password-confirmed Admin money actions.
+- Full remaining refunds, transfer reversals, dispute holds, cancellation review, and reschedule approval reset. Partial external refunds require staff settlement review.
+- Local Stripe dummy-key simulation alongside local Acuity, including a command to end a simulated session for transfer testing.
+- Seven additive tables, editable payment documentation, and payment-safe account deletion. Existing identities, passwords, settings, and historic allocations remain intact.
+- New payments disabled by default; no deployment or live money movement performed. Real Stripe/Acuity staging and live activation remain operator steps in STRIPE_V07_SETUP.md.
+
 # v0.6.7 — Acuity service import and FREE consultations
 
 - Admins and Account Managers can fetch an appointment type from Services & pricing, review and edit its name/description, and explicitly save the service and Acuity mapping.

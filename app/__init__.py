@@ -30,7 +30,17 @@ def create_app(config=None):
     app.config['APP_ENV']=os.getenv('APP_ENV','production')
     app.config['ACUITY_MODE']=os.getenv('ACUITY_MODE','live').lower()
     app.config['ACUITY_WEBHOOK_SECRET']=os.getenv('ACUITY_WEBHOOK_SECRET','')
+    app.config['STRIPE_MODE']=os.getenv('STRIPE_MODE','test').lower()
+    app.config['PAYMENTS_ENABLED']=os.getenv('PAYMENTS_ENABLED','false').lower()=='true'
+    app.config['STRIPE_LIVE_CONFIRMED']=os.getenv('STRIPE_LIVE_CONFIRMED','false').lower()=='true'
+    app.config['STRIPE_ACCOUNT_ID']=os.getenv('STRIPE_ACCOUNT_ID','')
+    app.config['STRIPE_CONNECT_WEBHOOK_SECRET']=os.getenv('STRIPE_CONNECT_WEBHOOK_SECRET','')
+    app.config['PAYMENT_MAX_ADVANCE_DAYS']=int(os.getenv('PAYMENT_MAX_ADVANCE_DAYS','60'))
+    app.config['PAYMENT_POLICY_TEXT']=os.getenv('PAYMENT_POLICY_TEXT','If TTBG cannot confirm your paid appointment, we refund the session payment. For other cancellations, contact TTBG for review before your session. Mentor transfers require completed-session approval.')
     if config: app.config.update(config)
+    from . import stripe_api
+    with app.app_context():stripe_api.validate_runtime()
+    if not 1<=app.config['PAYMENT_MAX_ADVANCE_DAYS']<=60:raise RuntimeError('PAYMENT_MAX_ADVANCE_DAYS must be between 1 and 60')
     from sqlalchemy.engine import make_url
     from urllib.parse import urlsplit
     dburl=make_url(app.config['SQLALCHEMY_DATABASE_URI'])
@@ -60,7 +70,7 @@ def create_app(config=None):
     def enforce_access():
         if app.config['ACUITY_MODE']=='mock' and request.remote_addr not in ('127.0.0.1','::1'):
             return 'Local practice mode accepts loopback connections only.',403
-        if request.endpoint=='appointments.webhook':return None
+        if request.endpoint in ('appointments.webhook','payments.webhook'):return None
         if current_user.is_authenticated:
             current_version=current_user.access.session_version if current_user.access else 0
             if not account_enabled(current_user) or session.get('auth_version',0)!=current_version:
@@ -100,6 +110,11 @@ def create_app(config=None):
     from .service_import import bp as service_import_bp
     app.register_blueprint(service_import_bp)
     app.extensions['csrf'].exempt(webhook)
+    from .payments import bp as payments_bp,webhook as stripe_webhook
+    app.register_blueprint(payments_bp)
+    app.extensions['csrf'].exempt(stripe_webhook)
+    from .payment_commands import register as register_payments
+    register_payments(app)
     from .acuity_commands import register as register_acuity_commands
     register_acuity_commands(app)
     from .commands import register_commands
@@ -110,7 +125,7 @@ def create_app(config=None):
         from .booking_config import scheduler_link
         from .registration_security import turnstile_enabled, email_label, mail_ready, turnstile_ready
         from .security import help_settings
-        return {'acuity_mode':app.config['ACUITY_MODE'],'help_settings':help_settings(),'turnstile_enabled':turnstile_enabled(),'turnstile_site_key':app.config.get('TURNSTILE_SITE_KEY',''),'email_label':email_label,'mail_ready':mail_ready(),'turnstile_ready':turnstile_ready(),'action_form':EmptyForm(formdata=None), 'platform_settings':settings(), 'role_labels':ROLE_LABELS, 'scheduler_link':scheduler_link, 'test_reservations_enabled':app.testing and app.config['TEST_RESERVATIONS_ENABLED']}
+        return {'payments_enabled':app.config['PAYMENTS_ENABLED'],'stripe_mode':app.config['STRIPE_MODE'],'payment_policy':app.config['PAYMENT_POLICY_TEXT'],'acuity_mode':app.config['ACUITY_MODE'],'help_settings':help_settings(),'turnstile_enabled':turnstile_enabled(),'turnstile_site_key':app.config.get('TURNSTILE_SITE_KEY',''),'email_label':email_label,'mail_ready':mail_ready(),'turnstile_ready':turnstile_ready(),'action_form':EmptyForm(formdata=None), 'platform_settings':settings(), 'role_labels':ROLE_LABELS, 'scheduler_link':scheduler_link, 'test_reservations_enabled':app.testing and app.config['TEST_RESERVATIONS_ENABLED']}
     @app.template_filter('money')
     def money(value): return f'${value/100:,.2f}'
     @app.template_filter('service_price')

@@ -13,7 +13,7 @@ The Flask application retains the existing user, mentor, service, booking, onboa
 | `market_photo_submission` | Moderation metadata and normalized JPEG bytes for current images |
 | `market_mentor_photo` | Current approved and pending submission pointers |
 | `market_service_scheduling` | Provider, event reference, hosted URL per service |
-| `market_mentor_integration` | Scheduling-user and future Stripe account references |
+| `market_mentor_integration` | Scheduling-user and legacy Stripe account references |
 | `market_schema_revision` | Idempotent upgrade markers |
 | `market_support_note` | Append-only staff notes attached to an account |
 | `market_support_incident` | Safe exception/provider metadata and resolution records |
@@ -40,7 +40,7 @@ Only JPEG/PNG/WebP still images are accepted. File size, dimensions, decoding, a
 
 The Admin database explorer enumerates application metadata tables, paginates rows, and excludes sensitive hash/blob columns at the SQL selection layer. CSV exports escape spreadsheet formula prefixes. It offers no arbitrary SQL execution. Audit writes occur with the business transaction; histories are retained.
 
-Resources report application/runtime/database/disk state and link to hosting consoles. Host infrastructure permissions, secret rotation, server lifecycle, backups, and billing remain outside the Flask app; no cloud-provider management API credentials are present. An explicit environment allowlist supplies Acuity and future Stripe credentials; only Admins can reveal them after fresh password verification.
+Resources report application/runtime/database/disk state and link to hosting consoles. Host infrastructure permissions, secret rotation, server lifecycle, backups, and billing remain outside the Flask app; no cloud-provider management API credentials are present. An explicit environment allowlist supplies Acuity and Stripe credentials; only Admins can reveal them after fresh password verification.
 
 ## Booking and allocation
 
@@ -48,7 +48,7 @@ Scheduling references and commission configuration are independent of the public
 
 Allocation uses integer cents, half-up rounding, and a 2000-basis-point company default. Current service rates are updated when an Admin changes the platform share; previous booking snapshots remain untouched. Test reservations remain explicitly gated by testing mode and cannot be enabled through hosting environment variables.
 
-See `SCHEDULING_OPTIONS.md` for the chosen Acuity/Stripe Connect architecture and remaining appointment/payment work. Saved external account references are not proof of authorization or payout readiness.
+See `SCHEDULING_OPTIONS.md` for the chosen Acuity/Stripe Connect architecture and implemented appointment/payment flow. Saved external account references are not proof of authorization or payout readiness.
 
 ## Support security and error capture
 
@@ -62,7 +62,7 @@ Flask's `got_request_exception` signal captures safe metadata and adds a random 
 
 The backend transport uses a fixed HTTPS Acuity origin, HTTP Basic authentication, an endpoint/method allowlist, redirect refusal, a 10-second socket timeout, and a bounded JSON response. The API key stays server-side. Live requests never use admin=true to bypass availability or intake validation. Availability supports mapped calendar/type IDs and explicit IANA timezone handling; times require UTC offsets.
 
-v0.6 retains the original read-only availability/contact mode and adds the explicit acuity_confirmed booking mode. Neither mode collects payment. Mock mode dispatches to a local simulator before any network operation and is guarded by local environment, loopback origin, SQLite database name, and remote address checks.
+v0.6 retains the original read-only availability/contact mode and adds the explicit acuity_confirmed booking mode. In v0.7, enabled Stripe payments wrap paid native confirmed appointments; with payments disabled these modes retain their earlier behavior. Mock mode dispatches to a local simulator before any network operation and is guarded by local environment, loopback origin, SQLite database name, and remote address checks.
 
 ## v0.5 identity lifecycle
 
@@ -103,3 +103,13 @@ AcuityMockAppointment and AcuityMockConfig provide fixed local calendar 101/type
 `service_import.py` adds a staff-only read/preview/confirm workflow using the existing Acuity transport. Signed expiring previews bind actor, mentor, provider scope, source fingerprint, and existing service/mapping state. Confirmation rereads Acuity, locks platform settings, mentor, and service rows on transactional databases, rechecks state, and atomically writes both mapping fields with the service and audit records. SQLite remains the local practice/test database; multi-worker database locking behavior needs the deployment database. No new table or background synchronization job is added.
 
 The `service_price` template filter displays FREE only for zero-valued service/session prices; `money` retains numeric financial formatting. Acuity creation and synchronization classify zero-price booking snapshots as `no_payment_required`.
+
+## v0.7 payment state and operations
+
+Seven new tables: `market_stripe_account`, `market_payment_order`, `market_payment_operation`, `market_stripe_event`, `market_stripe_dispute`, `market_stripe_mock_object`, `market_stripe_mock_key`. Existing table columns are unchanged. A payment order uses its Acuity request ID and stores immutable gross/mentor/platform amounts, mode/platform scope, destination, provider references, refund/reversal totals, completion evidence timestamps, and review holds.
+
+Stripe POST operations are committed before network submission, with unique scoped owner keys and durable idempotency IDs. A lease coordinates concurrent attempts; Stripe idempotency prevents repeated money movement. After 23 hours of uncertainty, writes stop for verified object reconciliation. Acuity creation has an atomic waiting-to-creating claim and never retries an ambiguous POST. This is recovery across independent systems, not a distributed transaction or Acuity reservation.
+
+Signed webhook events are a durable inbox. The worker reads canonical provider state rather than trusting arrival order. Fee data comes from the charge balance transaction. A completed Checkout is not an appointment; a Stripe transfer is not a bank payout. Accounts, order references, scope, amounts, currency, refund/dispute state, mentor readiness, completion approval, and available charge funds are checked server-side.
+
+Admins authorize money actions with password, reason, and audit records. Account managers investigate/reconcile scheduling only. Sensitive intake JSON, raw operation parameters, simulator payloads, and Checkout URLs are excluded from generic database exports. Account deletion detaches mentorship and scrubs pending personal payloads while retaining financial provenance. See STRIPE_V07_SETUP.md for operational details.

@@ -362,3 +362,108 @@ class AcuityMockConfig(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     scenario = db.Column(db.String(40), nullable=False, default='normal')
     webhook_target = db.Column(db.String(255), nullable=False, default='')
+
+# v0.7: additive payment tables; no card, bank, or identity-verification data.
+class StripeAccount(db.Model):
+    __tablename__ = 'market_stripe_account'
+    id = db.Column(db.Integer, primary_key=True)
+    mentor_id = db.Column(db.Integer, db.ForeignKey('market_mentor.id'))
+    mentor = db.relationship('Mentor')
+    scope = db.Column(db.String(100), nullable=False)
+    account_id = db.Column(db.String(100))
+    ready = db.Column(db.Boolean, default=False, nullable=False)
+    status = db.Column(db.String(80), default='not_connected', nullable=False)
+    checked_at = db.Column(db.DateTime)
+    __table_args__ = (db.UniqueConstraint('scope','mentor_id'), db.UniqueConstraint('scope','account_id'))
+
+class PaymentOrder(db.Model):
+    __tablename__ = 'market_payment_order'
+    id = db.Column(db.String(32), db.ForeignKey('market_acuity_request.id'), primary_key=True)
+    request = db.relationship('AcuityRequest', backref=db.backref('payment', uselist=False))
+    account_row_id = db.Column(db.Integer, db.ForeignKey('market_stripe_account.id'), nullable=False)
+    account = db.relationship('StripeAccount')
+    destination = db.Column(db.String(100), nullable=False)
+    scope = db.Column(db.String(100), nullable=False, index=True)
+    gross_cents = db.Column(db.Integer, nullable=False)
+    mentor_cents = db.Column(db.Integer, nullable=False)
+    platform_cents = db.Column(db.Integer, nullable=False)
+    stripe_fee_cents = db.Column(db.Integer)
+    payment_state = db.Column(db.String(40), default='unpaid', nullable=False)
+    booking_state = db.Column(db.String(40), default='waiting', nullable=False)
+    session_id = db.Column(db.String(100), unique=True)
+    checkout_url = db.Column(db.Text, default='')
+    intent_id = db.Column(db.String(100), unique=True)
+    charge_id = db.Column(db.String(100), unique=True)
+    expires_at = db.Column(db.DateTime, nullable=False)
+    slot_key = db.Column(db.String(64), unique=True)
+    appointment_payload = db.Column(db.JSON, nullable=False, default=dict)
+    refund_requested = db.Column(db.Boolean, default=False, nullable=False)
+    refunded_cents = db.Column(db.Integer, default=0, nullable=False)
+    transfer_id = db.Column(db.String(100), unique=True)
+    reversed_cents = db.Column(db.Integer, default=0, nullable=False)
+    completion_reported_at = db.Column(db.DateTime)
+    completion_approved_at = db.Column(db.DateTime)
+    hold_reason = db.Column(db.String(150), default='')
+    error_code = db.Column(db.String(100), default='')
+    created_at = db.Column(db.DateTime, default=now, nullable=False)
+    checked_at = db.Column(db.DateTime, default=now, nullable=False, index=True)
+    @property
+    def earnings_stage(self):
+        if self.reversed_cents:return 'Transfer recovered / adjusted'
+        if self.transfer_id:return 'Transferred to Stripe account'
+        if self.hold_reason or self.refund_requested or self.payment_state in ('refunded','disputed','partially_refunded'):return 'Held for review / refund'
+        if self.payment_state!='paid':return 'Awaiting payment'
+        if not self.completion_approved_at:return 'Awaiting completed-session approval'
+        return 'Approved · transfer eligibility checked on submission'
+    @property
+    def booking(self):
+        mirror = AcuityAppointment.query.filter_by(request_id=self.id).first()
+        return mirror.booking if mirror else None
+
+class PaymentOperation(db.Model):
+    __tablename__ = 'market_payment_operation'
+    id = db.Column(db.String(32), primary_key=True)
+    scope = db.Column(db.String(100), nullable=False)
+    owner_key = db.Column(db.String(150), nullable=False)
+    order_id = db.Column(db.String(32), db.ForeignKey('market_payment_order.id'))
+    account_row_id = db.Column(db.Integer, db.ForeignKey('market_stripe_account.id'))
+    kind = db.Column(db.String(30), nullable=False)
+    path = db.Column(db.String(200), nullable=False)
+    params = db.Column(db.JSON, nullable=False)
+    state = db.Column(db.String(30), default='queued', nullable=False)
+    response_id = db.Column(db.String(100))
+    error_code = db.Column(db.String(100), default='')
+    created_at = db.Column(db.DateTime, default=now, nullable=False)
+    attempted_at = db.Column(db.DateTime)
+    lease_until = db.Column(db.DateTime)
+    __table_args__ = (db.UniqueConstraint('scope','owner_key'),)
+
+class StripeEvent(db.Model):
+    __tablename__ = 'market_stripe_event'
+    id = db.Column(db.Integer, primary_key=True)
+    scope = db.Column(db.String(100), nullable=False)
+    event_id = db.Column(db.String(100), nullable=False)
+    event_type = db.Column(db.String(100), nullable=False)
+    object_id = db.Column(db.String(100), nullable=False)
+    pending = db.Column(db.Boolean, default=True, nullable=False)
+    error_code = db.Column(db.String(100), default='')
+    received_at = db.Column(db.DateTime, default=now, nullable=False)
+    checked_at = db.Column(db.DateTime, default=now, nullable=False)
+    __table_args__ = (db.UniqueConstraint('scope','event_id'),)
+
+class StripeDispute(db.Model):
+    __tablename__ = 'market_stripe_dispute'
+    id = db.Column(db.String(100), primary_key=True)
+    order_id = db.Column(db.String(32), db.ForeignKey('market_payment_order.id'), nullable=False)
+    status = db.Column(db.String(50), nullable=False)
+
+class StripeMockObject(db.Model):
+    __tablename__ = 'market_stripe_mock_object'
+    id = db.Column(db.String(100), primary_key=True)
+    kind = db.Column(db.String(40), nullable=False)
+    payload = db.Column(db.JSON, nullable=False)
+
+class StripeMockKey(db.Model):
+    __tablename__ = 'market_stripe_mock_key'
+    id = db.Column(db.String(100), primary_key=True)
+    object_id = db.Column(db.String(100), nullable=False)

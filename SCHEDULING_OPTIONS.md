@@ -16,8 +16,8 @@ Read ACUITY_V06_SETUP.md for exact settings and commands. The default upgrade pr
 
 ## Payment scope remains separate
 
-A confirmed appointment is not proof of payment. This release does not charge a card, create Stripe Connect accounts, verify checkout/webhook settlement, issue refunds, or send automatic payouts. It stores the agreed financial allocation for future reconciliation and displays any Acuity payment label as provider-reported.
+A confirmed appointment alone is not proof of payment. In v0.7.0, enabling Stripe payments routes paid native bookings through hosted Checkout, verifies the payment on the backend, then creates the Acuity appointment. Free consultations bypass Stripe. With payments disabled, the existing Acuity-only workflow remains available and labels payment as separately arranged.
 
-A future payment release still needs hosted mentor onboarding, account-readiness checks, coordinated payment/appointment states, conflict compensation, signed Stripe webhooks, refunds and reconciliation. Acuity remains the authority on slot availability; a local lock cannot reserve a time against an external Acuity booking.
+Acuity remains authoritative for availability; local Checkout coordination cannot reserve a slot against external bookings. Definitive booking failure requests a full refund. Uncertain creation is reconciled before further action. Mentor transfers require ended-session approval and current Stripe eligibility. TTBG absorbs processing fees from its gross allocation. Do not enable another collection path for the same session.
 
-Do not enable two independent collection paths for the same session. Until a payment workflow is deliberately integrated, arrange payment separately and explain that at confirmation, as the current UI does.
+See STRIPE_V07_SETUP.md for implemented payment architecture, setup, cancellation/refund behavior, recovery, and limitations.
