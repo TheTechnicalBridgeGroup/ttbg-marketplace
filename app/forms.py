@@ -28,7 +28,7 @@ class ReviewForm(FlaskForm):
 class ServiceForm(FlaskForm):
     name = StringField('Service name', validators=[DataRequired(),Length(max=120)])
     description = TextAreaField('Description', validators=[Optional(),Length(max=1000)])
-    price = DecimalField('Starting session price (USD)', places=2, validators=[DataRequired(), finite_number, NumberRange(min=Decimal('1'),max=Decimal('1000'))])
+    price = DecimalField('Starting session price (USD)', places=2, validators=[DataRequired(), finite_number, NumberRange(min=Decimal('0'),max=Decimal('1000'))])
     duration = SelectField('Session length', choices=[(30,'30 minutes'),(60,'60 minutes'),(90,'90 minutes')], coerce=int)
     fee_percent = DecimalField('TTBG commission (%)', places=2, validators=[finite_number, NumberRange(min=Decimal('0'),max=Decimal('100'))], default=Decimal('20'))
     acuity_type_id = StringField('Acuity appointment type ID (optional)', validators=[Optional(),Regexp(r'^\d{1,20}$',message='Use a numeric appointment type ID.')])
