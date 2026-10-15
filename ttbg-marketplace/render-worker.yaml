@@ -1,0 +1,51 @@
+# Optional dedicated background-worker blueprint. Configure the same values as the web service.
+# Run init-db once before starting the worker. Importing this file does not deploy anything here.
+services:
+  - type: worker
+    name: ttbg-marketplace-payments
+    runtime: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: python -m flask --app run payments-worker
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.8
+      - key: SECRET_KEY
+        sync: false
+      - key: DATABASE_URL
+        sync: false
+      - key: PUBLIC_BASE_URL
+        sync: false
+      - key: APP_ENV
+        sync: false
+      - key: STRIPE_MODE
+        sync: false
+      - key: STRIPE_ACCOUNT_ID
+        sync: false
+      - key: STRIPE_SECRET_KEY
+        sync: false
+      - key: STRIPE_WEBHOOK_SECRET
+        sync: false
+      - key: STRIPE_CONNECT_WEBHOOK_SECRET
+        sync: false
+      - key: STRIPE_LIVE_CONFIRMED
+        sync: false
+      - key: PAYMENTS_ENABLED
+        sync: false
+      - key: ACUITY_MODE
+        sync: false
+      - key: ACUITY_USER_ID
+        sync: false
+      - key: ACUITY_API_KEY
+        sync: false
+      - key: SMTP_HOST
+        sync: false
+      - key: SMTP_PORT
+        sync: false
+      - key: SMTP_SECURITY
+        sync: false
+      - key: SMTP_USERNAME
+        sync: false
+      - key: SMTP_PASSWORD
+        sync: false
+      - key: SMTP_FROM
+        sync: false
