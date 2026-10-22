@@ -133,6 +133,10 @@ def availability(sid):
             if selected and selected in dates:
                 data=api_get('availability/times',dict(ids,date=selected,timezone=zone))
                 if not isinstance(data,list):raise AcuityError('invalid_response')
+                from .scheduling import occupied, overlaps, type_catalog, interval
+                types=type_catalog()
+                lo=datetime.combine(selected_date,datetime.min.time(),tzinfo=tz).astimezone(timezone.utc).replace(tzinfo=None)
+                busy=occupied(ids['calendarID'],lo,lo+timedelta(days=1),types)
                 seen=set()
                 for item in data:
                     stamp=datetime.fromisoformat(item['time'])
@@ -140,10 +144,13 @@ def availability(sid):
                     local=stamp.astimezone(tz)
                     if local.date()!=selected_date or stamp<=datetime.now(timezone.utc) or stamp in seen:continue
                     seen.add(stamp)
+                    candidate=interval(stamp.astimezone(timezone.utc).replace(tzinfo=None),service.duration,types,ids['appointmentTypeID'])
+                    if any(overlaps(candidate,entry) for entry in busy):continue
                     body=f'I would like to book {service.name} with {service.mentor.user.name} on {local.isoformat()} ({zone}). Please confirm availability and payment arrangements.'
                     slots.append({'label':local.strftime('%I:%M %p %Z'),'time':local.isoformat(),
                         'contact':'mailto:'+cfg.support_email+'?'+urlencode({'subject':'TTBG session request','body':body},quote_via=quote)})
                 slots.sort(key=lambda s:s['time'])
+                if not slots:dates.discard(selected)
         except (AcuityError,ValueError,KeyError,TypeError,AttributeError) as exc:
             code=exc.code if isinstance(exc,AcuityError) else 'invalid_response'
             reference=record_failure(code);error='We could not load availability right now. Please try again or contact TTBG.';dates=set();slots=[]

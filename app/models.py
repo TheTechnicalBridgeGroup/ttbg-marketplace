@@ -569,3 +569,29 @@ def _immutable_financial_history(*args):
 db.Index('ix_pay_order_scope_created_v08',PaymentOrder.scope,PaymentOrder.created_at)
 db.Index('ix_pay_order_scope_status_v08',PaymentOrder.scope,PaymentOrder.payment_state)
 db.Index('ix_pay_identity_mentor_v08',PaymentIdentity.mentor_name)
+
+# v0.9 sanitized diagnostics; no request bodies, secrets, or customer intake.
+class DiagnosticProbe(db.Model):
+    __tablename__='market_diagnostic_probe'
+    name=db.Column(db.String(40),primary_key=True)
+    state=db.Column(db.String(40),nullable=False)
+    checked_at=db.Column(db.DateTime,nullable=False,default=now)
+
+class DiagnosticEvent(db.Model):
+    __tablename__='market_diagnostic_event'
+    id=db.Column(db.Integer,primary_key=True)
+    reference=db.Column(db.String(32),unique=True,nullable=False)
+    component=db.Column(db.String(40),nullable=False)
+    code=db.Column(db.String(80),nullable=False)
+    service_id=db.Column(db.Integer,index=True)
+    user_id=db.Column(db.Integer,index=True)
+    request_id=db.Column(db.String(32),index=True)
+    calendar_id=db.Column(db.String(30))
+    type_id=db.Column(db.String(30))
+    starts_at=db.Column(db.DateTime)
+    duration=db.Column(db.Integer)
+    price_cents=db.Column(db.Integer)
+    created_at=db.Column(db.DateTime,nullable=False,default=now,index=True)
+
+# Bounded occupancy lookups for concurrent booking requests.
+db.Index('ix_acuity_calendar_start_v09',AcuityRequest.scope,AcuityRequest.calendar_id,AcuityRequest.starts_at)

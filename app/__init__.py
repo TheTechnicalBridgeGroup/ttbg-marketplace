@@ -37,6 +37,8 @@ def create_app(config=None):
     app.config['STRIPE_CONNECT_WEBHOOK_SECRET']=os.getenv('STRIPE_CONNECT_WEBHOOK_SECRET','')
     app.config['PAYMENT_MAX_ADVANCE_DAYS']=int(os.getenv('PAYMENT_MAX_ADVANCE_DAYS','60'))
     app.config['PAYMENT_POLICY_TEXT']=os.getenv('PAYMENT_POLICY_TEXT','If TTBG cannot confirm your paid appointment, we refund the session payment. For other cancellations, contact TTBG for review before your session. Mentor transfers require completed-session approval.')
+    for key in ('RENDER_API_KEY','RENDER_OWNER_ID','RENDER_WEB_SERVICE_ID','RENDER_WORKER_SERVICE_ID','PLANETSCALE_INSIGHTS_URL','PLANETSCALE_DATABASE_LABEL','PLANETSCALE_BRANCH_LABEL','DEPLOYMENT_LABEL','DIAGNOSTICS_DATABASE_URL'):
+        app.config[key]=os.getenv(key,'')
     if config: app.config.update(config)
     from . import stripe_api
     with app.app_context():stripe_api.validate_runtime()
@@ -117,6 +119,9 @@ def create_app(config=None):
     register_payments(app)
     from .financial_routes import bp as financial_bp
     app.register_blueprint(financial_bp)
+    from .diagnostics import bp as diagnostics_bp
+    from . import render_logs
+    app.register_blueprint(diagnostics_bp)
     from .finance import actor_label,cancelled_by,states,identity
     app.jinja_env.globals.update(actor_label=actor_label,cancelled_by=cancelled_by,financial_states=states,payment_identity=identity)
     from .acuity_commands import register as register_acuity_commands

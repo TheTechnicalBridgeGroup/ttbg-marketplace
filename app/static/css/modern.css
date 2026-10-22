@@ -34,3 +34,12 @@ dialog{background:var(--surface);color:var(--ink);border:1px solid var(--line);b
 
 /* v0.8 financial operations, TTBG theme surfaces */
 .payment-presets{display:flex;gap:14px;flex-wrap:wrap}.financial-timeline-item{padding:18px 0;border-top:1px solid var(--line)}.financial-timeline-item>small{display:block}.financial-action-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px}.financial-action-grid small{display:block;margin-top:6px}.payment-customer-layout{max-width:900px;margin:auto}.financial-action-grid .button{width:100%}@media(max-width:760px){.financial-action-grid{grid-template-columns:1fr}.payment-presets{gap:12px;font-size:.9rem}}
+
+/* v0.9 accessible password controls */
+.password-control{display:flex;align-items:stretch;gap:.35rem;width:100%}
+.password-control input{min-width:0;flex:1}
+.password-toggle{display:inline-flex;align-items:center;justify-content:center;gap:.35rem;min-width:76px;min-height:44px;padding:.45rem;border:1px solid var(--border,#718096);border-radius:.5rem;background:transparent;color:inherit;cursor:pointer}
+.password-toggle svg{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:1.7}
+.password-toggle:focus-visible{outline:3px solid #d9b56d;outline-offset:3px}
+.diagnostic-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:1rem}
+.diagnostic-grid .panel{min-width:0;overflow-wrap:anywhere}

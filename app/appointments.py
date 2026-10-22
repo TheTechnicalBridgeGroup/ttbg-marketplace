@@ -66,6 +66,7 @@ def stamp(value):
 
 def write_lock():
     settings()
+    db.session.execute(db.update(PlatformSettings).where(PlatformSettings.id==1).values(id=PlatformSettings.id))
     db.session.execute(db.select(PlatformSettings).where(PlatformSettings.id==1).with_for_update()).scalar_one()
     db.session.expire_all()
 
@@ -121,11 +122,13 @@ def read_answers(fields):
         if value:answers.append({'id':int(f['id']),'value':value})
     return answers,errors
 
-def slot_available(ids,starts,zone):
+def slot_available(ids,starts,zone,duration=None,exclude_request=None):
     local=starts.replace(tzinfo=timezone.utc).astimezone(ZoneInfo(zone))
     result=acuity.api_get('availability/times',dict(ids,date=local.date().isoformat(),timezone=zone))
     if not isinstance(result,list):raise acuity.AcuityError('invalid_response',True)
-    return any(stamp(row.get('time'))==starts for row in result)
+    if not any(stamp(row.get('time'))==starts for row in result):return False
+    from .scheduling import conflicts
+    return not conflicts(ids,starts,duration,exclude_request=exclude_request)
 
 def normalize(data):
     try:
@@ -230,12 +233,6 @@ def book(sid):
     from . import payment_engine as payments
     from .stripe_api import StripeError
     form=ConfirmationForm();fields=[];field_errors={};error=None;service=None;quoted=None;paid_checkout=False;payment_account=None
-    # Repeat submissions of an accepted request never send another provider POST.
-    if request.method=='POST' and form.request_id.data:
-        prior=db.session.get(AcuityRequest,form.request_id.data)
-        if prior:
-            if prior.user_id!=current_user.id or prior.scope!=acuity.scope():abort(403)
-            return redirect(url_for('appointments.request_status',rid=prior.id))
     try:
         service=checked_service(sid)
         zone=request.args.get('timezone','America/New_York')[:80]
@@ -244,12 +241,21 @@ def book(sid):
             except (BadSignature,SignatureExpired):abort(400)
             if quoted['user_id']!=current_user.id or quoted['sid']!=sid or quoted['request_id']!=form.request_id.data:abort(400)
             zone=quoted['zone'];starts=stamp(quoted['time'])
+            prior=db.session.get(AcuityRequest,form.request_id.data)
+            if prior:
+                if prior.user_id!=current_user.id or prior.scope!=acuity.scope():abort(403)
+                if (prior.service_id!=sid or prior.type_id!=quoted['ids']['appointmentTypeID'] or prior.calendar_id!=quoted['ids']['calendarID'] or
+                    prior.duration!=quoted['duration'] or prior.price_cents!=quoted['price'] or prior.starts_at!=starts):
+                    raise acuity.AcuityError('booking_details_changed',True)
+                return redirect(url_for('appointments.request_status',rid=prior.id))
         else:starts=stamp(request.args.get('time',''))
         ZoneInfo(zone)
         if not now()<starts<now()+timedelta(days=187):raise acuity.AcuityError('time_no_longer_available',True)
         ids=acuity.mapping(service)
         if quoted and (quoted['ids']!=ids or quoted['price']!=service.price_cents or quoted['duration']!=service.duration or quoted['fee_bps']!=settings().fee_bps or quoted['scope']!=acuity.scope()):
             raise acuity.AcuityError('booking_details_changed',True)
+        if service.price_cents>0 and not payments.enabled() and acuity.mode()!='mock':
+            raise payments.PaymentProblem('Paid booking is temporarily unavailable. No appointment or charge has been created. Please contact TTBG.')
         acuity.throttle();fields=catalog(service)
         paid_checkout=payments.enabled() and service.price_cents>0
         if quoted and quoted.get('paid_checkout',False)!=paid_checkout:raise acuity.AcuityError('booking_details_changed',True)
@@ -257,6 +263,7 @@ def book(sid):
             payment_account=payments.checkout_check(service,starts)
             form.acknowledge.label.text='I agree to the session price and payment/cancellation information shown here. My appointment is confirmed only after Acuity accepts it.'
         if request.method=='GET':
+            if not slot_available(ids,starts,zone,service.duration):raise acuity.AcuityError('not_available',True)
             rid=secrets.token_hex(16);form.request_id.data=rid
             form.quote.data=serializer().dumps(dict(request_id=rid,user_id=current_user.id,sid=sid,ids=ids,price=service.price_cents,
                 duration=service.duration,fee_bps=settings().fee_bps,zone=zone,time=starts.replace(tzinfo=timezone.utc).isoformat(),scope=acuity.scope(),paid_checkout=paid_checkout))
@@ -265,12 +272,12 @@ def book(sid):
             answers,field_errors=read_answers(fields)
             if not field_errors:
                 if not rate_allowed('acuity-create',str(current_user.id),10,900):abort(429)
-                if not slot_available(ids,starts,zone):raise acuity.AcuityError('not_available',True)
                 write_lock();service=checked_service(sid)
+                if not slot_available(ids,starts,zone,service.duration):raise acuity.AcuityError('not_available',True)
                 if not account_enabled(current_user) or not email_allowed(current_user):abort(403)
                 if quoted['ids']!=acuity.mapping(service) or quoted['price']!=service.price_cents or quoted['duration']!=service.duration or quoted['fee_bps']!=settings().fee_bps:
                     raise acuity.AcuityError('booking_details_changed',True)
-                fingerprint=hashlib.sha256(f'{acuity.scope()}:{current_user.id}:{ids["calendarID"]}:{starts.isoformat()}'.encode()).hexdigest()
+                fingerprint=hashlib.sha256(f'{acuity.scope()}:{current_user.id}:{sid}:{ids["calendarID"]}:{ids["appointmentTypeID"]}:{starts.isoformat()}:{service.duration}:{service.price_cents}:{form.request_id.data}'.encode()).hexdigest()
                 existing=AcuityRequest.query.filter_by(dedupe_key=fingerprint).first()
                 if existing:return redirect(url_for('appointments.request_status',rid=existing.id))
                 req=AcuityRequest(id=form.request_id.data,user_id=current_user.id,service_id=sid,scope=acuity.scope(),calendar_id=ids['calendarID'],type_id=ids['appointmentTypeID'],
@@ -305,7 +312,12 @@ def book(sid):
     except (acuity.AcuityError,StripeError,payments.PaymentProblem,ZoneInfoNotFoundError,ValueError,TypeError,KeyError) as exc:
         db.session.rollback()
         error=exc.code if isinstance(exc,(acuity.AcuityError,StripeError)) else str(exc) if isinstance(exc,payments.PaymentProblem) else 'invalid_booking_details'
-    return render_template('appointments/confirm.html',s=service,form=form,fields=fields,field_errors=field_errors,error=error,
+    reference=None
+    if error:
+        from .diagnostics import record
+        reference=record('booking','booking_conflict' if error in ('not_available','time_no_longer_available') else 'booking_unavailable',service,starts if 'starts' in locals() else None)
+        if error in ('not_available','time_no_longer_available'):error='That time is no longer available. Please choose another time for your session. You have not been charged'
+    return render_template('appointments/confirm.html',s=service,reference=reference,form=form,fields=fields,field_errors=field_errors,error=error,
         starts=starts.replace(tzinfo=timezone.utc).astimezone(ZoneInfo(zone)) if service and 'starts' in locals() and not error else None,zone=zone if 'zone' in locals() else '',paid_checkout=paid_checkout)
 
 @bp.get('/appointments/requests/<rid>')
@@ -331,6 +343,8 @@ def webhook():
     if request.form.get('action') not in ('scheduled','rescheduled','canceled','changed'):return '',204
     try:pid=number(request.form.get('id'))
     except acuity.AcuityError:abort(400)
+    from .diagnostics import probe
+    probe('acuity_delivery','Signed delivery received');db.session.commit()
     try:sync_one(pid)
     except (acuity.AcuityError,SQLAlchemyError):db.session.rollback();return '',500
     return '',204

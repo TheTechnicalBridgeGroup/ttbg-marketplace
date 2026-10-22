@@ -58,7 +58,7 @@ def flatten(data,prefix=''):
 
 def _raw(method,path,params=None,key=None):
     headers={'Authorization':'Basic '+base64.b64encode((current_app.config['STRIPE_SECRET_KEY']+':').encode()).decode(),
-        'Stripe-Version':API_VERSION,'User-Agent':'TTBG-Marketplace/0.8.0','Accept':'application/json'}
+        'Stripe-Version':API_VERSION,'User-Agent':'TTBG-Marketplace/0.9.0','Accept':'application/json'}
     body=urlencode(flatten(params or {})).encode(); url='https://api.stripe.com/v1/'+path
     if key:headers['Idempotency-Key']='ttbg-v07-'+key
     if method=='GET':url+=('?'+body.decode()) if body else '';body=None
@@ -71,7 +71,14 @@ def _raw(method,path,params=None,key=None):
             if not isinstance(result,dict):raise StripeError('stripe_invalid_response')
             return result
     except HTTPError as e:
-        status=e.code;e.close()
+        status=e.code;classification=None
+        if status==400:
+            try:
+                detail=json.loads(e.read(8192));message=str((detail.get('error') or {}).get('message','')).lower()
+                if 'platform profile' in message:classification='stripe_platform_profile_incomplete'
+            except (ValueError,TypeError,AttributeError):pass
+        e.close()
+        if classification:raise StripeError(classification,True) from None
         raise StripeError('stripe_authentication_failed' if status in (401,403) else 'stripe_rate_limited' if status==429 else 'stripe_rejected' if status in (400,402,404) else 'stripe_unavailable',status in (400,401,402,403,404)) from None
     except (URLError,TimeoutError,OSError):raise StripeError('stripe_connection_failed') from None
     except (ValueError,UnicodeError):raise StripeError('stripe_invalid_response') from None

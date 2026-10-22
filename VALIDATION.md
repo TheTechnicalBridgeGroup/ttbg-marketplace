@@ -1,34 +1,31 @@
-# TTBG Marketplace v0.8.0 validation
+# v0.9.0 validation
 
-Validated locally on October 15, 2026, using the supplied v0.7.1 source. **191 automated tests validated: 163 retained tests and 28 v0.8 tests.** A full 189-test regression run passed. Two additional verification-time/attendance-correction tests were then added; all 53 v0.7/v0.8 payment tests passed together after those refinements. The final two focused cancellation/refund-history tests passed after distinguishing pending refund submission from financial success in the audit timeline.
+Baseline: the completed v0.8.0 release, including the supplied v0.7.1 Stripe Checkout and CSP fixes.
 
-## Financial operations
+- Full Python regression run: **213 passed** (168.77 seconds).
+- After final provider-response and error-classification hardening: **47 passed** covering v0.7 financial workflows and the 22 initial v0.9 tests.
+- Final PlanetScale/Vitess query-timeout guard: **2 passed**, including one additional test and a repeated record-explorer security test. **214 unique Python tests validated overall.**
+- Password DOM checks passed: independent Show/Hide buttons, accessible labels and pressed state, value/autofill preservation, dynamic fields, submit/dialog-close reset, and no logging/network access. `tests/password_visibility.cjs` can be run with Node after installing the development-only `jsdom` package. It is not a runtime dependency.
+- All Jinja templates compile; approved diagnostic table/column names exist; Python sources compile.
+- All 44 pre-existing model class declarations are unchanged. Two new diagnostic models and one booking lookup index are additive. Upgrade tests preserve accounts, password hashes, booking/payment snapshots, and repeated migration safety. PostgreSQL and MySQL table/index DDL compile in the regression suite.
 
-- Admin cancellation records the exact account ID, name, role, reason, approval, and confirmed timestamp; account rename does not rewrite the evidence.
-- Mentee unpaid Checkout closes only after Stripe confirms it is unpaid/expired. Natural expiry does not fabricate a cancellation actor. Payment completing during cancellation requires review and can be closed/refunded by an Admin without creating an appointment.
-- Mentor and Account Manager requests hold earnings and do not cancel paid appointments or move money. Requests retain the person's exact identity; a processing Admin is separately attributed.
-- Paid cancellation with no approved refund remains Paid + Cancelled + Held. With explicit refund approval, provider refund state and actual refunded amount are tracked independently.
-- Unknown Acuity cancellation response recovers by reading the provider, without another cancellation write. Completed sessions require post-session refund review.
-- External Acuity cancellation identifies an unverified initiator and holds earnings. No-show status/corrections come from Acuity and append history rather than erase prior evidence.
-- Full refund history preserves requester, approver, amount, provider reference, pending/failed/succeeded states, and original charge. Failed refunds create a separate retry operation/history record. Pending submission is not labeled a succeeded refund in the financial audit.
-- External pending partial refunds do not silently expand into full refunds. Transfer reversal failure does not undo a confirmed customer refund.
-- Friendly and Stripe/Acuity ID search; combined filters; explicit local date boundaries; sorting/pagination; full-filter totals; scope isolation; non-sensitive formula-safe CSV.
-- Customer payment pages hide internal allocation/reference cards and retain status, amount, refund information, support, and access-controlled receipt links. Unsafe receipt destinations are rejected.
-- Append-only financial events reject ORM update/delete. Failed financial authorization attempts and provider failures remain recorded. Original financial amounts and provider IDs survive repeated upgrade/backfill.
-- Worker heartbeat and local financial notice suppression; authenticated mentor Stripe management; Admin-only review of ambiguous notices.
-- Operation lease is claimed before provider submission; an interleaved attempt cannot issue a second money write. Original Stripe idempotency prefixes remain unchanged.
-- Successful Stripe/Acuity verification timestamps are independent of refresh attempts. A failed check does not advance the displayed successful verification time.
+The v0.9 tests cover:
 
-## Retained regression coverage
+- Free-to-paid same-time conflict with no substitution and no checkout creation.
+- Paid checkout blocking a free service before payment; timer alone does not release it; verified expiry does.
+- Cancellation/rebooking despite a stale local appointment snapshot; changed provider times after rescheduling.
+- Full-duration conflicts, different starts, cross-service padding, independent available times, saturated/incomplete occupancy responses and API failures.
+- Real simultaneous HTTP submissions using separate SQLite connections: one durable appointment, one conflict response.
+- Signed retry safety and one checkout per accepted request; paid services cannot use the live direct-booking path with checkout disabled.
+- Actual clickable availability links omit active checkout holds.
+- Admin-only direct-route/POST access, CSRF, diagnostic allowlists, bounds, no private fields or exports, and audited access.
+- Read-only health probes, no fabricated webhook delivery, original service and saved payment history, safe Render log summaries and nonfatal provider failure.
+- Connect-specific error references and unchanged historical financial values.
 
-Acuity import/booking/intake/synchronization, FREE consultations, Stripe allocation and recovery, onboarding readiness, completion/transfer/refund restrictions, signed webhook replay/out-of-order behavior, account management/deletion, session revocation, verification, Turnstile, profile photo processing, documentation, and support tools remain covered.
+Retained financial tests cover verified payment outcomes, Acuity creation uncertainty, post-payment recovery/refunds, duplicate operations, cancellation attribution, refund history, transfer approvals, webhook signatures, mode isolation and account deletion safeguards.
 
-The actual v0.7.1 Checkout parameter and narrow CSP fixes are explicitly checked. Source comparison confirms all 38 original model class declarations are unchanged. Six new models bring the application to 44 tables. PostgreSQL/MySQL table/index definitions compile; SQLite workflow tests use foreign-key enforcement. This is not a live PostgreSQL/PlanetScale migration test.
+## Not claimed as tested
 
-All Python sources and Jinja templates compile. Financial screens render through Flask test clients. No visual mobile/browser screenshot QA was performed. Packaging excludes credentials, local runtime databases, virtual environments, caches, and git metadata; a source scan found no unexpected embedded provider-key patterns.
+No live credentials, Render workspace API permissions, PlanetScale production migration, provider calendar settings, real email delivery, Google Meet joining details, real-money payments/refunds/transfers, or production deployment were exercised. No real-browser visual/keyboard/device QA was completed: the Chromium test binary could not be downloaded in this environment. DOM tests are not a substitute for that acceptance gate. Database concurrency was exercised with SQLite; run the staging race tests on the target PlanetScale engine before live activation.
 
-## Operator verification still required
-
-No live Stripe/Acuity request, production database migration, deployment, real provider email, account change, or money movement was performed during the build. Test TTBG's actual Stripe Sandbox/Connect eligibility, public webhooks, controlled Acuity calendars, SMTP acceptance/inbox delivery, worker restart/monitoring, database backup restoration, and the pilot's final live flow before production activation.
-
-Read FINANCIAL_OPERATIONS_V08.md. Partial-refund creation, automatic cancellation/no-show entitlement, Accounts v2 migration, and scheduled daily financial reporting are not included. Refund eligibility remains an explicit Admin policy decision. A transfer is described as Transferred to Stripe, not paid to a bank. Direct database-owner privileges remain outside application append-only controls.
+Follow RELEASE_V09.md for staging, controlled production acceptance, migration and rollback instructions. v0.9.0 remains a controlled production pre-release; this validation does not certify v1.0.0 readiness.

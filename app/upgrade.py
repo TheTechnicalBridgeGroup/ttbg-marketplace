@@ -48,4 +48,9 @@ def upgrade():
             observe(order,source='v0.8 migration of last saved provider state')
         db.session.add(KnowledgePage(space='Platform guides',title='Financial operations and cancellation accountability',body='# Payment operations\nUse Support > Payments to search by friendly reference, name, Stripe ID, or Acuity ID. Filters and exports are scoped to the current Stripe account and environment. Test and simulation references are explicitly marked.\n\n# Cancellations\nStudents, mentors, and account managers submit requests. Admins verify and process cancellations. Unpaid student checkout cancellation can be completed directly. Staff names, roles, reasons, and UTC timestamps remain in the financial timeline. External Acuity cancellations have an unverified initiator; do not guess who cancelled.\n\n# Refunds and transfers\nCancellation is independent from payment/refund status. Only Admins approve full remaining refunds and mentor transfers. Refund eligibility requires review until leadership publishes a policy. Partial refunds are not included. Transferred to Stripe does not mean paid to bank.\n\n# Recovery\nKeep the payment worker running. Review uncertain provider outcomes before retrying writes. See FINANCIAL_OPERATIONS_V08.md for setup, migration, monitoring, and acceptance tests.'))
         db.session.add(SchemaRevision(name='v0.8-financial-operations'))
+    if db.session.get(SchemaRevision,'v0.9-stability-diagnostics') is None:
+        from .models import AcuityRequest
+        for index in AcuityRequest.__table__.indexes:
+            if index.name.endswith('_v09'):index.create(bind=db.engine,checkfirst=True)
+        db.session.add(SchemaRevision(name='v0.9-stability-diagnostics'))
     db.session.commit()

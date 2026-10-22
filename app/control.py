@@ -234,22 +234,8 @@ def display_value(key,value):
 @bp.get('/admin/data')
 @roles('admin')
 def data():
-    tables={t.name:t for t in db.metadata.sorted_tables}
-    name=request.args.get('table','market_user')
-    if name not in tables:abort(404)
-    table=tables[name];page=max(1,request.args.get('page',1,type=int));size=50
-    count=db.session.scalar(select(func.count()).select_from(table))
-    # Do not fetch hashes, reset tokens, or image bytes from the database at all.
-    cols=[c for c in table.columns if c.name not in REDACTED]
-    query=select(*cols).order_by(*table.primary_key.columns).offset((page-1)*size).limit(size)
-    rows=[{c.name:display_value(c.name,row[c.name]) for c in cols} for row in db.session.execute(query).mappings()]
-    if request.args.get('format')=='csv':
-        out=io.StringIO();writer=csv.writer(out);writer.writerow([c.name for c in cols])
-        for row in rows:
-            writer.writerow([("'"+v if v.startswith(('=','+','-','@','\t','\r','\n')) else v) for v in row.values()])
-        log('Database page exported',name,f'Page {page}; {len(rows)} records.');db.session.commit()
-        response=make_response(out.getvalue());response.mimetype='text/csv';response.headers['Content-Disposition']=f'attachment; filename="{name}-page-{page}.csv"';response.headers['Cache-Control']='no-store';return response
-    return render_template('data.html',tables=tables,name=name,rows=rows,columns=cols,count=count,page=page,pages=max(1,math.ceil(count/size)),redacted=[c.name for c in table.columns if c.name in REDACTED])
+    from .diagnostics import explorer
+    return explorer()
 
 @bp.get('/admin/resources')
 @roles('admin')
@@ -258,5 +244,5 @@ def resources():
     usage=shutil.disk_usage(current_app.instance_path if os.path.isdir(current_app.instance_path) else current_app.root_path)
     try:db.session.execute(select(1));database='Reachable'
     except Exception:db.session.rollback();database='Unavailable'
-    info={'Release':'0.8.0','Python':platform.python_version(),'Flask':version('flask'),'Database engine':db.engine.dialect.name,'Database connection':database,'Runtime disk free':f'{usage.free/(1024**3):.1f} GiB','Runtime disk total':f'{usage.total/(1024**3):.1f} GiB','Photo storage':'Database (included in database backups)','Session cookies secure':str(current_app.config['SESSION_COOKIE_SECURE']),'Scheduling API':'Acuity appointment creation and synchronization; verify in Support','Payment processing':'Stripe Connect; see Support → Payments for mode and readiness'}
+    info={'Release':'0.9.0','Python':platform.python_version(),'Flask':version('flask'),'Database engine':db.engine.dialect.name,'Database connection':database,'Runtime disk free':f'{usage.free/(1024**3):.1f} GiB','Runtime disk total':f'{usage.total/(1024**3):.1f} GiB','Photo storage':'Database (included in database backups)','Session cookies secure':str(current_app.config['SESSION_COOKIE_SECURE']),'Scheduling API':'Acuity appointment creation and synchronization; verify in Support','Payment processing':'Stripe Connect; see Support → Payments for mode and readiness'}
     return render_template('resources.html',info=info)

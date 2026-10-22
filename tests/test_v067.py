@@ -210,7 +210,7 @@ def test_external_mapping_replaced_only_after_confirmation(mock_app):
 
 
 def test_health_version(mock_app):
-    assert mock_app.test_client().get('/health').json['version']=='0.8.0'
+    assert mock_app.test_client().get('/health').json['version']=='0.9.0'
 
 
 def test_free_import_booking_and_synchronization(mock_app):

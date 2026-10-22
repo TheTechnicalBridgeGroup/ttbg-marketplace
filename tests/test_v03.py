@@ -135,10 +135,11 @@ def test_split_and_provider_configuration(app):
 
 def test_settings_maintenance_registration_and_redacted_exports(app):
     c=app.test_client();login(c,'admin')
-    for table in db.metadata.tables:
+    from app.diagnostics import VIEWS
+    for table in VIEWS:
         assert c.get('/admin/data',query_string={'table':table}).status_code==200,table
     export=c.get('/admin/data?table=market_user&format=csv')
-    assert export.status_code==200 and 'password_hash' not in export.text and 'scrypt:' not in export.text
+    assert export.status_code==400  # Diagnostic exports intentionally removed in v0.9.
     assert c.get('/admin/data?table=not_real').status_code==404
     with app.app_context():
         cfg=settings();cfg.registration_open=False;db.session.commit()
@@ -162,8 +163,8 @@ def test_upgrade_preserves_identity_history_and_changes_future_split(app):
         assert db.session.get(User,1).role=='admin' and db.session.get(User,1).password_hash==before
         assert db.session.get(Service,1).fee_bps==2000
         assert Booking.query.one().fee_cents==1500
-        assert SchemaRevision.query.count()==6
-        upgrade();assert SchemaRevision.query.count()==6 and User.query.count()==4
+        assert SchemaRevision.query.count()==7
+        upgrade();assert SchemaRevision.query.count()==7 and User.query.count()==4
 
 
 def test_disabled_mentor_hides_photo_profile_and_blocks_existing_session(app):

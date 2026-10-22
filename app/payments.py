@@ -131,7 +131,10 @@ def connect():
             data=engine.execute(op)
             if stripe.mode()=='mock':flash('Local account created. Use Mark local account ready below to simulate completed onboarding.','success');return redirect(url_for('payments.connect'))
             target=stripe.redirect_url(data.get('url'),'onboarding');response=redirect(target,303);response.headers['Referrer-Policy']='no-referrer';return response
-        except (stripe.StripeError,engine.PaymentProblem,acuity.AcuityError) as exc:flash(error_message(exc),'error')
+        except (stripe.StripeError,engine.PaymentProblem,acuity.AcuityError) as exc:
+            from .diagnostics import record
+            reference=record('stripe_connect',exc.code if isinstance(exc,stripe.StripeError) else 'account_setup_failed')
+            flash('Stripe account setup could not be completed. Your account status is saved. Contact TTBG with support reference '+reference+'.','error')
     return render_template('payments/connect.html',account=row,form=form)
 
 @bp.get('/payments/connect/return')
@@ -139,7 +142,10 @@ def connect():
 def connect_return():
     row=engine.account_for(current_user.mentor.id)
     try:engine.refresh_account(row);flash('Stripe readiness checked. Returning from onboarding does not by itself confirm approval.','success')
-    except (stripe.StripeError,engine.PaymentProblem,acuity.AcuityError) as exc:flash(error_message(exc),'error')
+    except (stripe.StripeError,engine.PaymentProblem,acuity.AcuityError) as exc:
+        from .diagnostics import record
+        reference=record('stripe_connect',exc.code if isinstance(exc,stripe.StripeError) else 'account_setup_failed')
+        flash('We could not verify your Stripe account setup. Contact TTBG with support reference '+reference+'.','error')
     return redirect(url_for('payments.connect'))
 
 @bp.post('/payments/connect/refresh')

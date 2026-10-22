@@ -357,7 +357,7 @@ def test_all_schema_dialects_compile_and_upgrade_preserves_accounts(app):
         before=[(u.id,u.password_hash,u.role) for u in User.query]
         upgrade();upgrade()
         assert [(u.id,u.password_hash,u.role) for u in User.query]==before
-        assert len(db.metadata.tables)==44
+        assert len(db.metadata.tables)==46
         for dialect in (postgresql.dialect(),mysql.dialect()):
             for table in db.metadata.sorted_tables:
                 assert str(CreateTable(table).compile(dialect=dialect))

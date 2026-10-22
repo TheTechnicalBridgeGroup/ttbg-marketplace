@@ -256,4 +256,4 @@ def toggle_service(sid):
     return redirect(url_for('main.review',mid=s.mentor_id))
 
 @bp.get('/health')
-def health(): return {'status':'ok','version':'0.8.0'}
+def health(): return {'status':'ok','version':'0.9.0'}

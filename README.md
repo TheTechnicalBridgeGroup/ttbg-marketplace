@@ -1,6 +1,8 @@
-# TTBG Marketplace — v0.8.0
+# TTBG Marketplace — v0.9.0
 
-**v0.8.0 — Financial Operations & Payment Reliability** adds readable payment references, search/filters/CSV, exact staff cancellation attribution, independent appointment/payment/refund/earnings states, append-only financial events, guided Admin cancellation, refund history, worker health, and simpler customer pages. Read **FINANCIAL_OPERATIONS_V08.md** first. It includes upgrade, permissions, policy limits, cancellation, recovery, notification, and rollback instructions. The supplied working v0.7.1 Stripe Checkout/redirect fixes are retained. TTBG still absorbs processing fees; historical allocations remain unchanged.
+**v0.9.0 — Stability, Accessibility & Administrative Diagnostics** fixes cross-service slot conflicts, checkout holds, cancellation/rebooking, request identity and paid-booking bypasses; adds global password controls and Admin-only read diagnostics. **Read RELEASE_V09.md before upgrading.** Production/provider acceptance checks remain required.
+
+The retained **v0.8.0 — Financial Operations & Payment Reliability** adds readable payment references, search/filters/CSV, exact staff cancellation attribution, independent appointment/payment/refund/earnings states, append-only financial events, guided Admin cancellation, refund history, worker health, and simpler customer pages. Read **FINANCIAL_OPERATIONS_V08.md** first. It includes upgrade, permissions, policy limits, cancellation, recovery, notification, and rollback instructions. The supplied working v0.7.1 Stripe Checkout/redirect fixes are retained. TTBG still absorbs processing fees; historical allocations remain unchanged.
 
 The retained v0.7 foundation adds **Stripe Connect, hosted Checkout, verified payment webhooks, Acuity booking recovery, refunds, mentor earnings, and Admin-approved transfers**. **TTBG absorbs Stripe processing fees** out of its gross allocation; the default mentor share remains 80% of the session price. Start with **STRIPE_V07_SETUP.md** for upgrade steps, local dummy-key practice, real Stripe test mode, and controlled live activation. New paid checkout is disabled by default. No existing accounts are disabled or reset.
 
@@ -19,7 +21,7 @@ The Acuity appointment-type import from v0.6.7, FREE consultations, confirmed ap
 | Submit mentor profile pictures | Any mentor | Any mentor | Own picture | No |
 | Approve/reject/remove published mentor pictures | Yes | Yes | No | No |
 | Platform settings, commission, maintenance, metadata | Yes | No | No | No |
-| Database explorer, CSV pages, statistics, audit, diagnostics | Yes | No | No | No |
+| Safe read-only record explorer, statistics, audit, diagnostics | Yes | No | No | No |
 | Import and update services from an Acuity Appointment Type ID | Yes | Yes | No | No |
 | Scheduling URL/event references | Yes | Yes | View own service prices | No |
 | Investigate payment status and recovery | Yes | Yes | Own earnings only | Own payments only |
@@ -36,7 +38,8 @@ Sign in and choose **Admin** in the main navigation.
 - **Platform overview:** account totals, signups in the last 30 days, accounts by role, mentor publication states, services, pending pictures, and table record counts.
 - **Accounts:** find accounts, create Account Managers, Admins, and students; create mentors through the existing mentor-profile workflow; change identity details and roles; enable/disable access; revoke sessions; issue password-reset links.
 - **Settings & booking:** site title and description, support address, student registration, maintenance mode, scheduler choice, hosted booking links, and company share.
-- **Database:** paginated access to every application table and CSV exports of the displayed 50-record page. Password hashes, reset-token hashes, and photo bytes are excluded. Use task-specific forms to make changes.
+- **Operations & Diagnostics:** health evidence, safe Render log summaries, incident/booking investigation and provider links. Admin-only.
+- **Database:** approved troubleshooting tables and columns, exact ID/date filters, 25-row pages, query limits, no exports or SQL input. Use task-specific forms to make changes.
 - **Audit history:** identity changes, profile actions, commission/settings changes, exports, and photo decisions. Existing older mentor-only events remain visible in mentor history and the database explorer.
 - **Resources:** application/runtime information, database connectivity, disk capacity, and hosting-console links. Actual server restarts, scaling, deployments, secrets, backups, and billing remain in Render/PlanetScale. This release does not connect to their infrastructure management APIs or provide a web shell.
 

@@ -148,6 +148,8 @@ def test_acuity_real_source_mapping_timezone_and_no_reservation(app,monkeypatch)
     def get(path,params):
         seen.append((path,params))
         if path=='availability/dates':return [{'date':chosen}]
+        if path=='appointment-types':return [{'id':654,'duration':60}]
+        if path=='appointments':return []
         return [{'time':chosen+'T14:00:00+0000'},{'time':chosen+'T14:00:00+0000'}]
     monkeypatch.setattr('app.acuity.api_get',get)
     r=c.get('/availability/1',query_string={'month':month,'date':chosen,'timezone':'UTC'})

@@ -1,3 +1,7 @@
+# v0.9.0 upgrade note
+
+Follow RELEASE_V09.md first. Pause new bookings and drain old web requests before the additive init-db migration. Restart web and worker on the same release; do not mix booking versions. Optional diagnostics credentials remain server-side. Local tests do not authorize live payments.
+
 # Deploy TTBG Marketplace v0.8.0
 
 Update the existing **ttbg-marketplace** repository and Render service. Do not upload the mentor portal or help desk code into this repository.

@@ -273,7 +273,7 @@ def fulfill(order):
         if acuity.mapping(service)!={'calendarID':req.calendar_id,'appointmentTypeID':req.type_id} or service.price_cents!=req.price_cents or service.duration!=req.duration:
             raise acuity.AcuityError('booking_details_changed',True)
         catalog(service)
-        if not slot_available(acuity.mapping(service),req.starts_at,req.timezone):raise acuity.AcuityError('not_available',True)
+        if not slot_available(acuity.mapping(service),req.starts_at,req.timezone,req.duration,exclude_request=req.id):raise acuity.AcuityError('not_available',True)
     except acuity.AcuityError as exc:
         if exc.definitive:order.booking_state='rejected';request_refund(order,'booking_failed')
         else:order.error_code=exc.code;db.session.commit()

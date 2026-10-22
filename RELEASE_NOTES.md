@@ -1,3 +1,7 @@
+# v0.9.0 — Stability, Accessibility & Administrative Diagnostics
+
+See RELEASE_V09.md for booking integrity, paid checkout guards, password controls, safe Admin diagnostics, migration and outstanding live release gates. No business-model changes or deployment.
+
 # v0.8.0 — Financial Operations & Payment Reliability
 
 - Based on the supplied working v0.7.1 source; preserves supported Checkout parameters, narrow Stripe CSP, and original durable idempotency keys.
